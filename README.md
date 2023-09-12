@@ -1,3 +1,3 @@
 # bayt-alhikmah
 
-simple book library
+simple library
