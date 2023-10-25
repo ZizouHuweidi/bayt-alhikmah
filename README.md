@@ -1,3 +1,0 @@
-# bayt-alhikmah
-
-simple library
