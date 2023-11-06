@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "dgSpecHash": "LYbd3KP3VCDBfxK19tpW24FJ3rjIyzEBprQ/mHsI5MQeP3VQwLNWT52g++ErLhXtroLKjNK49Aiw42WieMMcqw==",
+  "success": true,
+  "projectFilePath": "/home/zizou/code/projects/bayt-alhikmah/src/Services/User/User.csproj",
+  "expectedPackageFiles": [
+    "/home/zizou/.nuget/packages/microsoft.aspnetcore.app.ref/7.0.13/microsoft.aspnetcore.app.ref.7.0.13.nupkg.sha512"
+  ],
+  "logs": []
+}

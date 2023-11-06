@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "/home/zizou/code/projects/bayt-alhikmah/bayt-alhikmah.csproj": {}
+    "/home/zizou/code/projects/bayt-alhikmah/src/Services/User/User.csproj": {}
   },
   "projects": {
-    "/home/zizou/code/projects/bayt-alhikmah/bayt-alhikmah.csproj": {
+    "/home/zizou/code/projects/bayt-alhikmah/src/Services/User/User.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "/home/zizou/code/projects/bayt-alhikmah/bayt-alhikmah.csproj",
-        "projectName": "bayt-alhikmah",
-        "projectPath": "/home/zizou/code/projects/bayt-alhikmah/bayt-alhikmah.csproj",
+        "projectUniqueName": "/home/zizou/code/projects/bayt-alhikmah/src/Services/User/User.csproj",
+        "projectName": "User",
+        "projectPath": "/home/zizou/code/projects/bayt-alhikmah/src/Services/User/User.csproj",
         "packagesPath": "/home/zizou/.nuget/packages/",
-        "outputPath": "/home/zizou/code/projects/bayt-alhikmah/obj/",
+        "outputPath": "/home/zizou/code/projects/bayt-alhikmah/src/Services/User/obj/",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "/home/zizou/.nuget/NuGet/NuGet.Config"
@@ -37,16 +37,6 @@
       "frameworks": {
         "net7.0": {
           "targetAlias": "net7.0",
-          "dependencies": {
-            "Microsoft.AspNetCore.OpenApi": {
-              "target": "Package",
-              "version": "[7.0.13, )"
-            },
-            "Swashbuckle.AspNetCore": {
-              "target": "Package",
-              "version": "[6.5.0, )"
-            }
-          },
           "imports": [
             "net461",
             "net462",
