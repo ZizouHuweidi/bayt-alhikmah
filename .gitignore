@@ -1,30 +1,7 @@
-node_modules
-
-/.cache
-/build
-
-
-# Binaries for programs and plugins
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
-
-
-# IDE specific files
 .vscode
-.idea
-
-# .env file
+node_modules/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
 .env
-
-__pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
-
-.venv
-
