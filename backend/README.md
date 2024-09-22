@@ -1,50 +1,15 @@
-# Bayt Al Hikmah Backend
-
-- Written in Python and FastAPI
-- Postgres Database
+# FastAPI Project - Backend
 
 ## Requirements
 
-- [Docker](https://www.docker.com/).
-- [Poetry](https://python-poetry.org/) for Python package and environment management.
+* [Docker](https://www.docker.com/).
+* [Poetry](https://python-poetry.org/) for Python package and environment management.
 
-## Local Development
+## Docker Compose
 
-- Start the stack with Docker Compose:
+Start the local development environment with Docker Compose following the guide in [../development.md](../development.md).
 
-```bash
-docker compose up -d
-```
-
-- Now you can open your browser and interact with these URLs:
-
-Backend, JSON based web API based on OpenAPI: http://localhost/api/
-
-Automatic interactive documentation with Swagger UI (from the OpenAPI backend): http://localhost/docs
-
-Adminer, database web administration: http://localhost:8080
-
-Traefik UI, to see how the routes are being handled by the proxy: http://localhost:8090
-
-**Note**: The first time you start your stack, it might take a minute for it to be ready. While the backend waits for the database to be ready and configures everything. You can check the logs to monitor it.
-
-To check the logs, run:
-
-```bash
-docker compose logs
-```
-
-To check the logs of a specific service, add the name of the service, e.g.:
-
-```bash
-docker compose logs backend
-```
-
-If your Docker is not running in `localhost` (the URLs above wouldn't work) you would need to use the IP or domain where your Docker is running.
-
-## Backend local development, additional details
-
-### General workflow
+## General Workflow
 
 By default, the dependencies are managed with [Poetry](https://python-poetry.org/), go there and install it.
 
@@ -64,13 +29,13 @@ Make sure your editor is using the correct Python virtual environment.
 
 Modify or add SQLModel models for data and SQL tables in `./backend/app/models.py`, API endpoints in `./backend/app/api/`, CRUD (Create, Read, Update, Delete) utils in `./backend/app/crud.py`.
 
-### VS Code
+## VS Code
 
 There are already configurations in place to run the backend through the VS Code debugger, so that you can use breakpoints, pause and explore variables, etc.
 
 The setup is also already configured so you can run the tests through the VS Code Python tests tab.
 
-### Docker Compose Override
+## Docker Compose Override
 
 During development, you can change Docker Compose settings that will only affect the local development environment in the file `docker-compose.override.yml`.
 
@@ -124,7 +89,7 @@ Nevertheless, if it doesn't detect a change but a syntax error, it will just sto
 
 ...this previous detail is what makes it useful to have the container alive doing nothing and then, in a Bash session, make it run the live reload server.
 
-### Backend tests
+## Backend tests
 
 To test the backend run:
 
@@ -136,49 +101,49 @@ The tests run with Pytest, modify and add tests to `./backend/app/tests/`.
 
 If you use GitHub Actions the tests will run automatically.
 
-#### Test running stack
+### Test running stack
 
 If your stack is already up and you just want to run the tests, you can use:
 
 ```bash
-docker compose exec backend bash /app/tests-start.sh
+docker compose exec backend bash scripts/tests-start.sh
 ```
 
-That `/app/tests-start.sh` script just calls `pytest` after making sure that the rest of the stack is running. If you need to pass extra arguments to `pytest`, you can pass them to that command and they will be forwarded.
+That `/app/scripts/tests-start.sh` script just calls `pytest` after making sure that the rest of the stack is running. If you need to pass extra arguments to `pytest`, you can pass them to that command and they will be forwarded.
 
 For example, to stop on first error:
 
 ```bash
-docker compose exec backend bash /app/tests-start.sh -x
+docker compose exec backend bash scripts/tests-start.sh -x
 ```
 
-#### Test Coverage
+### Test Coverage
 
 When the tests are run, a file `htmlcov/index.html` is generated, you can open it in your browser to see the coverage of the tests.
 
-### Migrations
+## Migrations
 
 As during local development your app directory is mounted as a volume inside the container, you can also run the migrations with `alembic` commands inside the container and the migration code will be in your app directory (instead of being only inside the container). So you can add it to your git repository.
 
 Make sure you create a "revision" of your models and that you "upgrade" your database with that revision every time you change them. As this is what will update the tables in your database. Otherwise, your application will have errors.
 
-- Start an interactive session in the backend container:
+* Start an interactive session in the backend container:
 
 ```console
 $ docker compose exec backend bash
 ```
 
-- Alembic is already configured to import your SQLModel models from `./backend/app/models.py`.
+* Alembic is already configured to import your SQLModel models from `./backend/app/models.py`.
 
-- After changing a model (for example, adding a column), inside the container, create a revision, e.g.:
+* After changing a model (for example, adding a column), inside the container, create a revision, e.g.:
 
 ```console
 $ alembic revision --autogenerate -m "Add column last_name to User model"
 ```
 
-- Commit to the git repository the files generated in the alembic directory.
+* Commit to the git repository the files generated in the alembic directory.
 
-- After creating the revision, run the migration in the database (this is what will actually change the database):
+* After creating the revision, run the migration in the database (this is what will actually change the database):
 
 ```console
 $ alembic upgrade head
@@ -190,7 +155,7 @@ If you don't want to use migrations at all, uncomment the lines in the file at `
 SQLModel.metadata.create_all(engine)
 ```
 
-and comment the line in the file `prestart.sh` that contains:
+and comment the line in the file `scripts/prestart.sh` that contains:
 
 ```console
 $ alembic upgrade head
