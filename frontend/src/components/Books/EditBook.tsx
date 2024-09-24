@@ -11,55 +11,62 @@ import {
   ModalFooter,
   ModalHeader,
   ModalOverlay,
-} from "@chakra-ui/react"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { type SubmitHandler, useForm } from "react-hook-form"
+} from "@chakra-ui/react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { type SubmitHandler, useForm } from "react-hook-form";
 
-import { type ApiError, type ItemCreate, ItemsService } from "../../client"
-import useCustomToast from "../../hooks/useCustomToast"
-import { handleError } from "../../utils"
+import {
+  type ApiError,
+  type BookPublic,
+  type BookUpdate,
+  BooksService,
+} from "../../client";
+import useCustomToast from "../../hooks/useCustomToast";
+import { handleError } from "../../utils";
 
-interface AddItemProps {
-  isOpen: boolean
-  onClose: () => void
+interface EditBookProps {
+  book: BookPublic;
+  isOpen: boolean;
+  onClose: () => void;
 }
 
-const AddItem = ({ isOpen, onClose }: AddItemProps) => {
-  const queryClient = useQueryClient()
-  const showToast = useCustomToast()
+const EditBook = ({ book: book, isOpen, onClose }: EditBookProps) => {
+  const queryClient = useQueryClient();
+  const showToast = useCustomToast();
   const {
     register,
     handleSubmit,
     reset,
-    formState: { errors, isSubmitting },
-  } = useForm<ItemCreate>({
+    formState: { isSubmitting, errors, isDirty },
+  } = useForm<BookUpdate>({
     mode: "onBlur",
     criteriaMode: "all",
-    defaultValues: {
-      title: "",
-      description: "",
-    },
-  })
+    defaultValues: book,
+  });
 
   const mutation = useMutation({
-    mutationFn: (data: ItemCreate) =>
-      ItemsService.createItem({ requestBody: data }),
+    mutationFn: (data: BookUpdate) =>
+      BooksService.updateBook({ id: book.id, requestBody: data }),
     onSuccess: () => {
-      showToast("Success!", "Item created successfully.", "success")
-      reset()
-      onClose()
+      showToast("Success!", "Book updated successfully.", "success");
+      onClose();
     },
     onError: (err: ApiError) => {
-      handleError(err, showToast)
+      handleError(err, showToast);
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["items"] })
+      queryClient.invalidateQueries({ queryKey: ["books"] });
     },
-  })
+  });
 
-  const onSubmit: SubmitHandler<ItemCreate> = (data) => {
-    mutation.mutate(data)
-  }
+  const onSubmit: SubmitHandler<BookUpdate> = async (data) => {
+    mutation.mutate(data);
+  };
+
+  const onCancel = () => {
+    reset();
+    onClose();
+  };
 
   return (
     <>
@@ -71,17 +78,16 @@ const AddItem = ({ isOpen, onClose }: AddItemProps) => {
       >
         <ModalOverlay />
         <ModalContent as="form" onSubmit={handleSubmit(onSubmit)}>
-          <ModalHeader>Add Item</ModalHeader>
+          <ModalHeader>Edit Book</ModalHeader>
           <ModalCloseButton />
           <ModalBody pb={6}>
-            <FormControl isRequired isInvalid={!!errors.title}>
+            <FormControl isInvalid={!!errors.title}>
               <FormLabel htmlFor="title">Title</FormLabel>
               <Input
                 id="title"
                 {...register("title", {
-                  required: "Title is required.",
+                  required: "Title is required",
                 })}
-                placeholder="Title"
                 type="text"
               />
               {errors.title && (
@@ -98,17 +104,21 @@ const AddItem = ({ isOpen, onClose }: AddItemProps) => {
               />
             </FormControl>
           </ModalBody>
-
           <ModalFooter gap={3}>
-            <Button variant="primary" type="submit" isLoading={isSubmitting}>
+            <Button
+              variant="primary"
+              type="submit"
+              isLoading={isSubmitting}
+              isDisabled={!isDirty}
+            >
               Save
             </Button>
-            <Button onClick={onClose}>Cancel</Button>
+            <Button onClick={onCancel}>Cancel</Button>
           </ModalFooter>
         </ModalContent>
       </Modal>
     </>
-  )
-}
+  );
+};
 
-export default AddItem
+export default EditBook;

@@ -4,15 +4,15 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from app.core.config import settings
-from app.tests.utils.item import create_random_item
+from app.tests.utils.book import create_random_book
 
 
-def test_create_item(
+def test_create_book(
     client: TestClient, superuser_token_headers: dict[str, str]
 ) -> None:
     data = {"title": "Foo", "description": "Fighters"}
     response = client.post(
-        f"{settings.API_V1_STR}/items/",
+        f"{settings.API_V1_STR}/books/",
         headers=superuser_token_headers,
         json=data,
     )
@@ -24,40 +24,40 @@ def test_create_item(
     assert "owner_id" in content
 
 
-def test_read_item(
+def test_read_book(
     client: TestClient, superuser_token_headers: dict[str, str], db: Session
 ) -> None:
-    item = create_random_item(db)
+    book = create_random_book(db)
     response = client.get(
-        f"{settings.API_V1_STR}/items/{item.id}",
+        f"{settings.API_V1_STR}/books/{book.id}",
         headers=superuser_token_headers,
     )
     assert response.status_code == 200
     content = response.json()
-    assert content["title"] == item.title
-    assert content["description"] == item.description
-    assert content["id"] == str(item.id)
-    assert content["owner_id"] == str(item.owner_id)
+    assert content["title"] == book.title
+    assert content["description"] == book.description
+    assert content["id"] == str(book.id)
+    assert content["owner_id"] == str(book.owner_id)
 
 
-def test_read_item_not_found(
+def test_read_book_not_found(
     client: TestClient, superuser_token_headers: dict[str, str]
 ) -> None:
     response = client.get(
-        f"{settings.API_V1_STR}/items/{uuid.uuid4()}",
+        f"{settings.API_V1_STR}/books/{uuid.uuid4()}",
         headers=superuser_token_headers,
     )
     assert response.status_code == 404
     content = response.json()
-    assert content["detail"] == "Item not found"
+    assert content["detail"] == "Book not found"
 
 
-def test_read_item_not_enough_permissions(
+def test_read_book_not_enough_permissions(
     client: TestClient, normal_user_token_headers: dict[str, str], db: Session
 ) -> None:
-    item = create_random_item(db)
+    book = create_random_book(db)
     response = client.get(
-        f"{settings.API_V1_STR}/items/{item.id}",
+        f"{settings.API_V1_STR}/books/{book.id}",
         headers=normal_user_token_headers,
     )
     assert response.status_code == 400
@@ -65,13 +65,13 @@ def test_read_item_not_enough_permissions(
     assert content["detail"] == "Not enough permissions"
 
 
-def test_read_items(
+def test_read_books(
     client: TestClient, superuser_token_headers: dict[str, str], db: Session
 ) -> None:
-    create_random_item(db)
-    create_random_item(db)
+    create_random_book(db)
+    create_random_book(db)
     response = client.get(
-        f"{settings.API_V1_STR}/items/",
+        f"{settings.API_V1_STR}/books/",
         headers=superuser_token_headers,
     )
     assert response.status_code == 200
@@ -79,13 +79,13 @@ def test_read_items(
     assert len(content["data"]) >= 2
 
 
-def test_update_item(
+def test_update_book(
     client: TestClient, superuser_token_headers: dict[str, str], db: Session
 ) -> None:
-    item = create_random_item(db)
+    book = create_random_book(db)
     data = {"title": "Updated title", "description": "Updated description"}
     response = client.put(
-        f"{settings.API_V1_STR}/items/{item.id}",
+        f"{settings.API_V1_STR}/books/{book.id}",
         headers=superuser_token_headers,
         json=data,
     )
@@ -93,31 +93,31 @@ def test_update_item(
     content = response.json()
     assert content["title"] == data["title"]
     assert content["description"] == data["description"]
-    assert content["id"] == str(item.id)
-    assert content["owner_id"] == str(item.owner_id)
+    assert content["id"] == str(book.id)
+    assert content["owner_id"] == str(book.owner_id)
 
 
-def test_update_item_not_found(
+def test_update_book_not_found(
     client: TestClient, superuser_token_headers: dict[str, str]
 ) -> None:
     data = {"title": "Updated title", "description": "Updated description"}
     response = client.put(
-        f"{settings.API_V1_STR}/items/{uuid.uuid4()}",
+        f"{settings.API_V1_STR}/books/{uuid.uuid4()}",
         headers=superuser_token_headers,
         json=data,
     )
     assert response.status_code == 404
     content = response.json()
-    assert content["detail"] == "Item not found"
+    assert content["detail"] == "Book not found"
 
 
-def test_update_item_not_enough_permissions(
+def test_update_book_not_enough_permissions(
     client: TestClient, normal_user_token_headers: dict[str, str], db: Session
 ) -> None:
-    item = create_random_item(db)
+    book = create_random_book(db)
     data = {"title": "Updated title", "description": "Updated description"}
     response = client.put(
-        f"{settings.API_V1_STR}/items/{item.id}",
+        f"{settings.API_V1_STR}/books/{book.id}",
         headers=normal_user_token_headers,
         json=data,
     )
@@ -126,37 +126,37 @@ def test_update_item_not_enough_permissions(
     assert content["detail"] == "Not enough permissions"
 
 
-def test_delete_item(
+def test_delete_book(
     client: TestClient, superuser_token_headers: dict[str, str], db: Session
 ) -> None:
-    item = create_random_item(db)
+    book = create_random_book(db)
     response = client.delete(
-        f"{settings.API_V1_STR}/items/{item.id}",
+        f"{settings.API_V1_STR}/books/{book.id}",
         headers=superuser_token_headers,
     )
     assert response.status_code == 200
     content = response.json()
-    assert content["message"] == "Item deleted successfully"
+    assert content["message"] == "Book deleted successfully"
 
 
-def test_delete_item_not_found(
+def test_delete_book_not_found(
     client: TestClient, superuser_token_headers: dict[str, str]
 ) -> None:
     response = client.delete(
-        f"{settings.API_V1_STR}/items/{uuid.uuid4()}",
+        f"{settings.API_V1_STR}/books/{uuid.uuid4()}",
         headers=superuser_token_headers,
     )
     assert response.status_code == 404
     content = response.json()
-    assert content["detail"] == "Item not found"
+    assert content["detail"] == "Book not found"
 
 
-def test_delete_item_not_enough_permissions(
+def test_delete_book_not_enough_permissions(
     client: TestClient, normal_user_token_headers: dict[str, str], db: Session
 ) -> None:
-    item = create_random_item(db)
+    book = create_random_book(db)
     response = client.delete(
-        f"{settings.API_V1_STR}/items/{item.id}",
+        f"{settings.API_V1_STR}/books/{book.id}",
         headers=normal_user_token_headers,
     )
     assert response.status_code == 400
