@@ -10,7 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/joho/godotenv/autoload"
-	sqlc "github.com/zizouhuweidi/bayt-alhikmah/albayt/internal/database/gen"
+	"github.com/zizouhuweidi/bayt-alhikmah/albayt/internal/database/repository"
 )
 
 // Service represents a service that interacts with a database.
@@ -22,12 +22,12 @@ type Service interface {
 	// It returns an error if the connection cannot be closed.
 	Close()
 	// Queries returns the sqlc Queries struct for database operations
-	Queries() *sqlc.Queries
+	Queries() *repository.Queries
 }
 
 type service struct {
-	pool    *pgxpool.Pool
-	queries *sqlc.Queries
+	pool *pgxpool.Pool
+	repo *repository.Queries
 }
 
 var (
@@ -76,11 +76,11 @@ func newService() (*service, error) {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	queries := sqlc.New(pool)
+	repo := repository.New(pool)
 
 	return &service{
-		pool:    pool,
-		queries: queries,
+		pool: pool,
+		repo: repo,
 	}, nil
 }
 
@@ -105,7 +105,7 @@ func (s *service) Close() {
 	s.pool.Close()
 }
 
-func (s *service) Queries() *sqlc.Queries {
+func (s *service) Queries() *repository.Queries {
 	log.Print("Disconnected from database")
-	return s.queries
+	return s.repo
 }

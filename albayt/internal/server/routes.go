@@ -11,6 +11,7 @@ func (s *Server) RegisterRoutes() http.Handler {
 	e := echo.New()
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
+	e.Use(middleware.CORS())
 
 	e.GET("/", s.HelloWorldHandler)
 
