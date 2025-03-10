@@ -1,28 +1,36 @@
-# %% Cell 1,
-from dotenv import dotenv_values
 import os
-import requests
-import pandas as pd
+from llama_index.llms.openai import OpenAI
+from llama_index.core import PromptTemplate
 
-from langchain.chains import RetrievalQA
-from langchain.document_loaders import TextLoader
-from langchain.embeddings.openai import OpenAIEmbeddings
-from langchain.llms import OpenAI,HuggingFaceHub
-from langchain.text_splitter import CharacterTextSplitter
-from langchain.vectorstores import Chroma, FAISS
-from langchain.document_loaders.csv_loader import CSVLoader
-from langchain.prompts import PromptTemplate
-from langchain.embeddings import HuggingFaceEmbeddings
 
-config = dotenv_values(".env")
-HUGGINGFACEHUB_API_TOKEN = config['HUGGINGFACEHUB_API_TOKEN']
-os.environ["HUGGINGFACEHUB_API_TOKEN"] = HUGGINGFACEHUB_API_TOKEN
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+if not OPENAI_API_KEY:
+    raise ValueError("Please set the OPENAI_API_KEY environment variable.")
 
-# %% Cell 2,
+# Initialize the OpenAI LLM
+llm = OpenAI(model="gpt-4o-mini", temperature=0.7)
 
-df = pd.read_csv('./data/goodreads_data.csv').drop(['Unnamed: 0'],axis=1)
-df = df.assign( genre_len = lambda x:len(x['Genres']))
-df = df[df['genre_len']>0]
-df = df[['Book','Genres','Description']]
-df.to_csv('book_genre.csv',index=False)
-print(df.head())
+# Define the drug recommendation prompt template
+RECOMMENDATION_PROMPT = """
+
+"""
+
+# Create a PromptTemplate
+prompt_template = PromptTemplate(RECOMMENDATION_PROMPT)
+
+
+# Function to generate recommendations
+def get_recommendation(user_input):
+    # Format the prompt with the user input
+    formatted_prompt = prompt_template.format(user_input=user_input)
+
+    # Generate the response using OpenAI
+    response = llm.complete(formatted_prompt)
+
+    return response.text
+
+
+# Test the function in a Jupyter Notebook
+user_input = ""
+recommendation = get_recommendation(user_input)
+print(recommendation)
