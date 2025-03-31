@@ -9,7 +9,7 @@ import (
 
 	_ "github.com/joho/godotenv/autoload"
 
-	"github.com/zizouhuweidi/bayt-alhikmah/albayt/internal/database"
+	"github.com/zizouhuweidi/bayt-alhikmah/internal/database"
 )
 
 type Server struct {
@@ -20,10 +20,10 @@ type Server struct {
 
 func NewServer() *http.Server {
 	port, _ := strconv.Atoi(os.Getenv("PORT"))
-	db, _ := database.New()
 	NewServer := &Server{
 		port: port,
-		db:   db,
+
+		db: database.New(),
 	}
 
 	// Declare Server config

@@ -1,6 +1,43 @@
 services:
-  psql:
+  alhikmah:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: prod
+    restart: unless-stopped
+    ports:
+      - ${PORT}:${PORT}
+    environment:
+      APP_ENV: ${APP_ENV}
+      PORT: ${PORT}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_DATABASE: ${DB_DATABASE}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      # DB_SCHEMA: ${DB_SCHEMA}
+    depends_on:
+      albayt:
+        condition: service_healthy
+    networks:
+      - bayt-alhikmah
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+      target: client
+    restart: unless-stopped
+    depends_on:
+      - alhikmah
+    ports:
+      - 3000:3000
+    networks:
+      - bayt-alhikmah
+
+  albayt:
     image: postgres:latest
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_DATABASE}
       POSTGRES_USER: ${DB_USERNAME}
@@ -8,7 +45,27 @@ services:
     ports:
       - "${DB_PORT}:5432"
     volumes:
-      - psql_volume:/var/lib/postgresql/data
+      - albayt:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        ["CMD-SHELL", "sh -c 'pg_isready -U ${DB_USERNAME} -d ${DB_DATABASE}'"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - bayt-alhikmah
+
+  pgadmin:
+    container_name: pgadmin
+    image: dpage/pgadmin4:latest
+    restart: unless-stopped
+    environment:
+      PGADMIN_LISTEN_PORT: 5050
+      PGADMIN_DEFAULT_EMAIL: "zubeir.huweidi@gmail.com"
+      PGADMIN_DEFAULT_PASSWORD: "1"
 
 volumes:
-  psql_volume:
+  albayt:
+networks:
+  bayt-alhikmah:
