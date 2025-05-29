@@ -2,13 +2,12 @@ package database
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"os"
 	"strconv"
 	"time"
-
-	"github.com/jmoiron/sqlx"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/joho/godotenv/autoload"
@@ -23,11 +22,11 @@ type Service interface {
 	// Close terminates the database connection.
 	// It returns an error if the connection cannot be closed.
 	Close() error
-	DB() *sqlx.DB
+	DB() *sql.DB
 }
 
 type service struct {
-	db *sqlx.DB
+	db *sql.DB
 }
 
 var (
@@ -46,7 +45,7 @@ func New() Service {
 		return dbInstance
 	}
 	connStr := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable&search_path=%s", username, password, host, port, database, schema)
-	db, err := sqlx.Open("pgx", connStr)
+	db, err := sql.Open("pgx", connStr)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -56,7 +55,7 @@ func New() Service {
 	return dbInstance
 }
 
-func (s *service) DB() *sqlx.DB {
+func (s *service) DB() *sql.DB {
 	return s.db
 }
 
@@ -81,7 +80,7 @@ func (s *service) Health() map[string]string {
 	stats["status"] = "up"
 	stats["message"] = "It's healthy"
 
-	// Get database stats (like open connections, in use, idle, etc.)
+	// Get database stats
 	dbStats := s.db.Stats()
 	stats["open_connections"] = strconv.Itoa(dbStats.OpenConnections)
 	stats["in_use"] = strconv.Itoa(dbStats.InUse)

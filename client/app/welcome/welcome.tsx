@@ -2,7 +2,7 @@ import { useState } from "react";
 
 export function Welcome() {
   const fetchData = () => {
-    fetch(`http://localhost:${import.meta.env.VITE_PORT}/`)
+    fetch(`http://localhost:${import.meta.env.VITE_PORT}/books`)
       .then((response) => response.text())
       .then((data) => setMessage(data))
       .catch((error) => console.error("Error fetching data:", error));

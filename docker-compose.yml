@@ -1,46 +1,59 @@
 services:
-  alhikmah:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: prod
-    restart: unless-stopped
-    ports:
-      - ${PORT}:${PORT}
-    environment:
-      APP_ENV: ${APP_ENV}
-      PORT: ${PORT}
-      DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT}
-      DB_DATABASE: ${DB_DATABASE}
-      DB_USERNAME: ${DB_USERNAME}
-      DB_PASSWORD: ${DB_PASSWORD}
-      # DB_SCHEMA: ${DB_SCHEMA}
-    depends_on:
-      albayt:
-        condition: service_healthy
-    networks:
-      - bayt-alhikmah
+  # alhikmah:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #     target: prod
+  #   restart: unless-stopped
+  #   ports:
+  #     - ${PORT}:${PORT}
+  #   environment:
+  #     APP_ENV: ${APP_ENV}
+  #     PORT: ${PORT}
+  #     DB_HOST: ${DB_HOST}
+  #     DB_PORT: ${DB_PORT}
+  #     DB_DATABASE: ${DB_DATABASE}
+  #     DB_USERNAME: ${DB_USERNAME}
+  #     DB_PASSWORD: ${DB_PASSWORD}
+  #     # DB_SCHEMA: ${DB_SCHEMA}
+  #   depends_on:
+  #     albayt:
+  #       condition: service_healthy
+  #   networks:
+  #     - bayt-alhikmah
 
-  client:
-    build:
-      context: ./client
-      dockerfile: Dockerfile
-      target: client
+  # client:
+  #   build:
+  #     context: ./client
+  #     dockerfile: Dockerfile
+  #     target: client
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - alhikmah
+  #   ports:
+  #     - 3000:3000
+  #   networks:
+  #     - bayt-alhikmah
+
+  postgres:
+    container_name: postgres_bayt
+    image: postgres
     restart: unless-stopped
-    depends_on:
-      - alhikmah
     ports:
-      - 3000:3000
-    networks:
-      - bayt-alhikmah
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: 1
+    volumes:
+      - albayt:/var/lib/postgresql/data
 
   albayt:
     image: postgres:latest
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${DB_DATABASE}
       POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_DB: ${DB_DATABASE}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     ports:
       - "${DB_PORT}:5432"
@@ -54,7 +67,7 @@ services:
       retries: 3
       start_period: 15s
     networks:
-      - bayt-alhikmah
+      bayt-alhikmah:
 
   pgadmin:
     container_name: pgadmin

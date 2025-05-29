@@ -4,12 +4,10 @@ export
 .PHONY: init
 init:
 	@go install honnef.co/go/tools/cmd/staticcheck@latest
-	@go install -v github.com/nicksnyder/go-i18n/v2/goi18n@latest
 	@go install github.com/cosmtrek/air@latest
 	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 	@go install github.com/go-delve/delve/cmd/dlv@latest
 	@go install github.com/segmentio/golines@latest
-	@go install github.com/jesseduffield/lazygit@latest
 	@go install mvdan.cc/gofumpt@latest
 	@go install github.com/mfridman/tparse@latest
 
@@ -179,4 +177,4 @@ audit:
 # =====================================================================
 .PHONY: psql
 psql:
-	docker run -it --rm --network ${NETWORK} albayt psql -h ${DB_HOST} -U ${DB_USERNAME}
+	docker run -it --rm --network ${NETWORK} postgres psql -U ${DB_USERNAME}
