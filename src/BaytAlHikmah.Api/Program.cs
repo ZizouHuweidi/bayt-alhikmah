@@ -1,41 +1,15 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using DbUp;
-
-var builder = WebApplication.CreateBuilder(args);
-
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-
-EnsureDatabase.For.PostgresqlDatabase(connectionString);
-
-var upgrader = DeployChanges.To
-    .PostgresqlDatabase(connectionString)
-    .WithScriptsFromFileSystem("Migrations/scripts")
-    .LogToConsole()
-    .Build();
-
-var result = upgrader.PerformUpgrade();
-
-if (!result.Successful)
-{
-    Console.ForegroundColor = ConsoleColor.Red;
-    Console.WriteLine(result.Error);
-    Console.ResetColor();
-    return;
-}
-
-Console.ForegroundColor = ConsoleColor.Green;
-Console.WriteLine("Success!");
-Console.ResetColor();
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
+using BaytAlHikmah.Api;
+using BaytAlHikmah.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
+using BaytAlHikmah.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
-
-builder.Services.AddSingleton<DapperContext>();
+builder.Services.AddInfrastructure(builder.Configuration);
 
 builder.Services.AddAuthentication(options =>
 {
@@ -61,7 +35,10 @@ builder.Services.AddAuthentication(options =>
     options.ClientSecret = builder.Configuration["Google:ClientSecret"];
 });
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("AdminPolicy", policy => policy.RequireRole("Admin"));
+});
 
 builder.Services.AddCors(options =>
 {
@@ -100,5 +77,6 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapAuthEndpoints();
+app.MapAdminEndpoints();
 
 app.Run();
