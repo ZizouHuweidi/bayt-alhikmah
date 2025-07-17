@@ -1,22 +1,21 @@
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+FROM golang:1.24-alpine AS build
 
 WORKDIR /app
 
-COPY bayt-alhikmah.csproj .
-RUN dotnet restore
+COPY go.mod go.sum ./
+RUN go mod download
 
 COPY . .
 
-RUN dotnet publish -c Release -o out
+RUN go build -o main cmd/api/main.go
 
-FROM mcr.microsoft.com/dotnet/aspnet:9.0
-
+FROM alpine:3.20.1 AS prod
 WORKDIR /app
+COPY --from=build /app/main /app/main
+EXPOSE ${PORT}
+CMD ["./main"]
 
-COPY --from=build /app/out .
-
-EXPOSE 8080
-
-ENV ASPNETCORE_URLS=http://+:8080
-
-ENTRYPOINT ["dotnet", "bayt-alhikmah.dll"]
+# # Define a build argument for PORT (with a default value)
+# ARG PORT=8080
+# EXPOSE ${PORT}
+# CMD ["./main"]
