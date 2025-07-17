@@ -28,12 +28,6 @@ namespace BaytAlHikmah.Api
                     FullName = userDto.FullName
                 };
 
-                // Make the first user an admin
-                if (await dbContext.Users.CountAsync() == 0)
-                {
-                    user.Role = BaytAlHikmah.Core.Enums.UserRole.Admin;
-                }
-
                 dbContext.Users.Add(user);
                 await dbContext.SaveChangesAsync();
 
@@ -96,7 +90,6 @@ namespace BaytAlHikmah.Api
                 new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
                 new Claim(JwtRegisteredClaimNames.Email, user.Email),
                 new Claim(JwtRegisteredClaimNames.Name, user.FullName ?? string.Empty),
-                new Claim(ClaimTypes.Role, user.Role.ToString())
             };
 
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(config["Jwt:Key"]));

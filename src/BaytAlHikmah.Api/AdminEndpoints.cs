@@ -10,29 +10,25 @@ namespace BaytAlHikmah.Api
     {
         public static void MapAdminEndpoints(this WebApplication app)
         {
-            var adminGroup = app.MapGroup("/admin").RequireAuthorization("AdminPolicy");
-
-            adminGroup.MapGet("/users", async (ApplicationDbContext dbContext) =>
+            app.MapGet("/admin/users", async ([FromServices] ApplicationDbContext dbContext) =>
             {
                 var users = await dbContext.Users.ToListAsync();
                 return Results.Ok(users);
-            });
+            }).RequireAuthorization("AdminPolicy");
 
-            adminGroup.MapPut("/users/{userId}/role", async (Guid userId, [FromBody] UpdateUserRoleRequest request, ApplicationDbContext dbContext) =>
+            app.MapPut("/admin/users/{id}/role", async (Guid id, [FromBody] UserRole newRole, [FromServices] ApplicationDbContext dbContext) =>
             {
-                var user = await dbContext.Users.FindAsync(userId);
+                var user = await dbContext.Users.FindAsync(id);
                 if (user == null)
                 {
                     return Results.NotFound("User not found.");
                 }
 
-                user.Role = request.Role;
+                user.Role = newRole;
                 await dbContext.SaveChangesAsync();
 
-                return Results.Ok(new { message = "User role updated successfully." });
-            });
+                return Results.Ok(new { message = $"User {user.Email} role updated to {newRole}" });
+            }).RequireAuthorization("AdminPolicy");
         }
     }
-
-    public record UpdateUserRoleRequest(UserRole Role);
 }
