@@ -1,4 +1,4 @@
-FROM golang:1.24-alpine AS build
+FROM golang:1.24.4-alpine AS build
 
 WORKDIR /app
 
@@ -15,7 +15,3 @@ COPY --from=build /app/main /app/main
 EXPOSE ${PORT}
 CMD ["./main"]
 
-# # Define a build argument for PORT (with a default value)
-# ARG PORT=8080
-# EXPOSE ${PORT}
-# CMD ["./main"]

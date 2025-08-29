@@ -3,37 +3,44 @@ package server
 import (
 	"fmt"
 	"net/http"
-	"os"
-	"strconv"
 	"time"
 
-	_ "github.com/joho/godotenv/autoload"
-
-	"github.com/zizouhuweidi/bayt-alhikmah/internal/database"
+	"github.com/labstack/echo/v4"
 )
 
-type Server struct {
-	port int
-
-	db database.Service
+type UserHandler interface {
+	RegisterRoutes(g *echo.Group)
 }
 
-func NewServer() *http.Server {
-	port, _ := strconv.Atoi(os.Getenv("PORT"))
-	NewServer := &Server{
-		port: port,
+type Config struct {
+	Port        int
+	UserHandler UserHandler
+	// BookHandler BookHandler
+}
 
-		db: database.New(),
+type Server struct {
+	port        int
+	userHandler UserHandler
+	// bookHandler BookHandler ...
+}
+
+func NewServer(cfg Config) *http.Server {
+	server := &Server{
+		port:        cfg.Port,
+		userHandler: cfg.UserHandler,
 	}
 
-	// Declare Server config
-	server := &http.Server{
-		Addr:         fmt.Sprintf(":%d", NewServer.port),
-		Handler:      NewServer.RegisterRoutes(),
+	e := echo.New()
+
+	server.RegisterRoutes(e)
+
+	httpServer := &http.Server{
+		Addr:         fmt.Sprintf(":%d", server.port),
+		Handler:      e,
 		IdleTimeout:  time.Minute,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	}
 
-	return server
+	return httpServer
 }

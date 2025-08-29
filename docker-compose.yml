@@ -1,73 +1,45 @@
 services:
-  # alhikmah:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile
-  #     target: prod
-  #   restart: unless-stopped
-  #   ports:
-  #     - ${PORT}:${PORT}
-  #   environment:
-  #     APP_ENV: ${APP_ENV}
-  #     PORT: ${PORT}
-  #     DB_HOST: ${DB_HOST}
-  #     DB_PORT: ${DB_PORT}
-  #     DB_DATABASE: ${DB_DATABASE}
-  #     DB_USERNAME: ${DB_USERNAME}
-  #     DB_PASSWORD: ${DB_PASSWORD}
-  #     # DB_SCHEMA: ${DB_SCHEMA}
-  #   depends_on:
-  #     albayt:
-  #       condition: service_healthy
-  #   networks:
-  #     - bayt-alhikmah
-
-  # client:
-  #   build:
-  #     context: ./client
-  #     dockerfile: Dockerfile
-  #     target: client
-  #   restart: unless-stopped
-  #   depends_on:
-  #     - alhikmah
-  #   ports:
-  #     - 3000:3000
-  #   networks:
-  #     - bayt-alhikmah
-
-  postgres:
-    container_name: postgres_bayt
-    image: postgres
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: prod
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "${PORT}:${PORT}"
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_DB: postgres
-      POSTGRES_PASSWORD: 1
-    volumes:
-      - albayt:/var/lib/postgresql/data
+      APP_ENV: ${APP_ENV}
+      PORT: ${PORT}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_SCHEMA: ${DB_SCHEMA}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - bayt-alhikmah-net
 
-  albayt:
-    image: postgres:latest
+  db:
+    image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${DB_USERNAME}
-      POSTGRES_DB: ${DB_DATABASE}
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     ports:
-      - "${DB_PORT}:5432"
+      - "5432:${DB_PORT}"
     volumes:
-      - albayt:/var/lib/postgresql/data
+      - db_data:/var/lib/postgresql/data
     healthcheck:
-      test:
-        ["CMD-SHELL", "sh -c 'pg_isready -U ${DB_USERNAME} -d ${DB_DATABASE}'"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 5s
       timeout: 5s
-      retries: 3
-      start_period: 15s
+      retries: 5
     networks:
-      bayt-alhikmah:
+      - bayt-alhikmah-net
 
   pgadmin:
     container_name: pgadmin
@@ -79,6 +51,6 @@ services:
       PGADMIN_DEFAULT_PASSWORD: "1"
 
 volumes:
-  albayt:
+  db_data:
 networks:
-  bayt-alhikmah:
+  bayt-alhikmah-net:

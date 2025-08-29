@@ -3,68 +3,78 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
+	"github.com/zizouhuweidi/bayt-alhikmah/internal/platform/database"
 	"github.com/zizouhuweidi/bayt-alhikmah/internal/server"
+	"github.com/zizouhuweidi/bayt-alhikmah/internal/user"
+
+	_ "github.com/joho/godotenv/autoload"
 )
 
-func init() {
-	// Set the time format (optional)
-	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-
-	// Configure the global logger to output to the console with human-readable format
-	consoleWriter := zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}
-	log.Logger = zerolog.New(consoleWriter).With().Timestamp().Logger()
-
-	// Optionally, set a global log level
-	zerolog.SetGlobalLevel(zerolog.InfoLevel)
-}
-
 func gracefulShutdown(apiServer *http.Server, done chan bool) {
-	// Create context that listens for the interrupt signal from the OS.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Listen for the interrupt signal.
 	<-ctx.Done()
 
-	log.Print("shutting down gracefully, press Ctrl+C again to force")
+	log.Println("shutting down gracefully, press Ctrl+C again to force")
+	stop()
 
-	// The context is used to inform the server it has 5 seconds to finish
-	// the request it is currently handling
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := apiServer.Shutdown(ctx); err != nil {
 		log.Printf("Server forced to shutdown with error: %v", err)
 	}
 
-	log.Print("Server exiting")
+	log.Println("Server exiting")
 
-	// Notify the main goroutine that the shutdown is complete
 	done <- true
 }
 
 func main() {
-	server := server.NewServer()
+	dbConfig := database.Config{
+		User:     os.Getenv("DB_USER"),
+		Password: os.Getenv("DB_PASSWORD"),
+		Host:     os.Getenv("DB_HOST"),
+		Port:     os.Getenv("DB_PORT"),
+		DBName:   os.Getenv("DB_NAME"),
+		Schema:   os.Getenv("DB_SCHEMA"),
+	}
+	port, _ := strconv.Atoi(os.Getenv("PORT"))
+	if port == 0 {
+		port = 8080
+	}
 
-	// Create a done channel to signal when the shutdown is complete
+	db, err := database.New(dbConfig)
+	if err != nil {
+		log.Fatalf("could not initialize database connection: %s", err)
+	}
+	defer db.Close()
+
+	userRepo := user.NewRepository(db)
+	userSvc := user.NewService(userRepo)
+	userHandler := user.NewHandler(userSvc)
+
+	srv := server.NewServer(server.Config{
+		Port:        port,
+		UserHandler: userHandler,
+	})
+
 	done := make(chan bool, 1)
+	go gracefulShutdown(srv, done)
 
-	// Run graceful shutdown in a separate goroutine
-	go gracefulShutdown(server, done)
-
-	err := server.ListenAndServe()
-	if err != nil && err != http.ErrServerClosed {
+	log.Printf("Server starting on port %d", port)
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		panic(fmt.Sprintf("http server error: %s", err))
 	}
 
-	// Wait for the graceful shutdown to complete
 	<-done
-	log.Print("Graceful shutdown complete.")
+	log.Println("Graceful shutdown complete.")
 }

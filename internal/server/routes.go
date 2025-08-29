@@ -5,44 +5,32 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-
-	"github.com/zizouhuweidi/bayt-alhikmah/internal/database"
-	"github.com/zizouhuweidi/bayt-alhikmah/internal/handlers"
-	"github.com/zizouhuweidi/bayt-alhikmah/internal/repository"
 )
 
-func (s *Server) RegisterRoutes() http.Handler {
-	e := echo.New()
+func (s *Server) RegisterRoutes(e *echo.Echo) {
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
-
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		AllowOrigins:     []string{"https://*", "http://*"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
-		AllowHeaders:     []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		// TODO: Change for prod
+		AllowOrigins:     []string{"*"},
+		AllowMethods:     []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete},
+		AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization},
 		AllowCredentials: true,
-		MaxAge:           300,
 	}))
 
-	bookRepo := repository.NewBookRepository(database.New().DB())
-	bookHandler := handlers.NewBookHandler(bookRepo)
-
-	// Setup routes.
-	//
-	e.GET("/books", bookHandler.ListBooks)
 	e.GET("/health", s.healthHandler)
-	e.GET("/", s.HelloWorldHandler)
-	return e
-}
 
-func (s *Server) HelloWorldHandler(c echo.Context) error {
-	resp := map[string]string{
-		"message": "hello, world!",
-	}
+	apiV1 := e.Group("/api/v1")
 
-	return c.JSON(http.StatusOK, resp)
+	userGroup := apiV1.Group("/users")
+	s.userHandler.RegisterRoutes(userGroup)
+
+	// bookGroup := apiV1.Group("/books")
+	// s.bookHandler.RegisterRoutes(bookGroup)
 }
 
 func (s *Server) healthHandler(c echo.Context) error {
-	return c.JSON(http.StatusOK, s.db.Health())
+	// TODO: Add database health check
+
+	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
