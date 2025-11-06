@@ -15,12 +15,14 @@ type UserHandler interface {
 type Config struct {
 	Port        int
 	UserHandler UserHandler
+	JWTSecret   string
 	// BookHandler BookHandler
 }
 
 type Server struct {
 	port        int
 	userHandler UserHandler
+	jwtSecret   string
 	// bookHandler BookHandler ...
 }
 
@@ -28,6 +30,7 @@ func NewServer(cfg Config) *http.Server {
 	server := &Server{
 		port:        cfg.Port,
 		userHandler: cfg.UserHandler,
+		jwtSecret:   cfg.JWTSecret,
 	}
 
 	e := echo.New()

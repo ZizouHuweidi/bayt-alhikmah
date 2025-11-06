@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/zizouhuweidi/bayt-alhikmah/internal/platform/database"
+	"github.com/jackc/pgx/v5"
 	"github.com/zizouhuweidi/bayt-alhikmah/internal/server"
 	"github.com/zizouhuweidi/bayt-alhikmah/internal/user"
 
@@ -39,32 +39,38 @@ func gracefulShutdown(apiServer *http.Server, done chan bool) {
 }
 
 func main() {
-	dbConfig := database.Config{
-		User:     os.Getenv("DB_USER"),
-		Password: os.Getenv("DB_PASSWORD"),
-		Host:     os.Getenv("DB_HOST"),
-		Port:     os.Getenv("DB_PORT"),
-		DBName:   os.Getenv("DB_NAME"),
-		Schema:   os.Getenv("DB_SCHEMA"),
-	}
 	port, _ := strconv.Atoi(os.Getenv("PORT"))
 	if port == 0 {
 		port = 8080
 	}
 
-	db, err := database.New(dbConfig)
+	conn, err := pgx.Connect(context.Background(), os.Getenv("DATABASE_URL"))
 	if err != nil {
-		log.Fatalf("could not initialize database connection: %s", err)
+		log.Fatalf("Failed to connect to the database: %v", err)
 	}
-	defer db.Close()
+	defer conn.Close(context.Background())
+
+	// Example query to test connection
+	var version string
+	if err := conn.QueryRow(context.Background(), "SELECT version()").Scan(&version); err != nil {
+		log.Fatalf("Query failed: %v", err)
+	}
+
+	log.Println("Connected to:", version)
+
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		log.Fatal("JWT_SECRET environment variable is not set")
+	}
 
 	userRepo := user.NewRepository(db)
 	userSvc := user.NewService(userRepo)
-	userHandler := user.NewHandler(userSvc)
+	userHandler := user.NewHandler(userSvc, jwtSecret)
 
 	srv := server.NewServer(server.Config{
 		Port:        port,
 		UserHandler: userHandler,
+		JWTSecret:   jwtSecret,
 	})
 
 	done := make(chan bool, 1)

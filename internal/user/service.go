@@ -10,8 +10,12 @@ import (
 
 var ErrNotFound = errors.New("not found")
 
+// Add a new error for bad credentials
+var ErrInvalidCredentials = errors.New("invalid email or password")
+
 type Service interface {
 	Register(ctx context.Context, username, email, password string) (User, error)
+	Login(ctx context.Context, email, password string) (User, error)
 }
 
 type service struct {
@@ -34,5 +38,24 @@ func (s *service) Register(ctx context.Context, username, email, password string
 		return User{}, err
 	}
 
+	return user, nil
+}
+
+func (s *service) Login(ctx context.Context, email, password string) (User, error) {
+	user, err := s.repo.GetUserByEmail(ctx, email)
+	if err != nil {
+		// If the user is not found, return the invalid credentials error.
+		// We don't want to tell the attacker whether the email exists.
+		return User{}, ErrInvalidCredentials
+	}
+
+	// Compare the provided password with the stored hash.
+	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
+	if err != nil {
+		// If the password does not match, return the same invalid credentials error.
+		return User{}, ErrInvalidCredentials
+	}
+
+	// Login successful.
 	return user, nil
 }

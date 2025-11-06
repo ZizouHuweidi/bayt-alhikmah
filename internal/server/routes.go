@@ -22,8 +22,9 @@ func (s *Server) RegisterRoutes(e *echo.Echo) {
 
 	apiV1 := e.Group("/api/v1")
 
-	userGroup := apiV1.Group("/users")
-	s.userHandler.RegisterRoutes(userGroup)
+	// Public user routes (login/register)
+	userPublicGroup := apiV1.Group("/users")
+	s.userHandler.RegisterRoutes(userPublicGroup)
 
 	// bookGroup := apiV1.Group("/books")
 	// s.bookHandler.RegisterRoutes(bookGroup)
