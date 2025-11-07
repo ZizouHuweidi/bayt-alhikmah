@@ -10,6 +10,7 @@ import (
 
 type UserHandler interface {
 	RegisterRoutes(g *echo.Group)
+	RegisterProtectedRoutes(g *echo.Group)
 }
 
 type Config struct {

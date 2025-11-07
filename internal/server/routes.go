@@ -26,6 +26,13 @@ func (s *Server) RegisterRoutes(e *echo.Echo) {
 	userPublicGroup := apiV1.Group("/users")
 	s.userHandler.RegisterRoutes(userPublicGroup)
 
+	// Protected routes that require authentication
+	protectedGroup := apiV1.Group("")
+	protectedGroup.Use(s.AuthMiddleware()) // Apply the JWT middleware
+
+	// Add protected user routes to this group
+	s.userHandler.RegisterProtectedRoutes(protectedGroup.Group("/users"))
+
 	// bookGroup := apiV1.Group("/books")
 	// s.bookHandler.RegisterRoutes(bookGroup)
 }

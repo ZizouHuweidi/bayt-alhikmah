@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/zizouhuweidi/bayt-alhikmah/internal/platform/database"
 	"github.com/zizouhuweidi/bayt-alhikmah/internal/server"
 	"github.com/zizouhuweidi/bayt-alhikmah/internal/user"
 
@@ -44,19 +44,11 @@ func main() {
 		port = 8080
 	}
 
-	conn, err := pgx.Connect(context.Background(), os.Getenv("DATABASE_URL"))
+	db, err := database.New()
 	if err != nil {
-		log.Fatalf("Failed to connect to the database: %v", err)
+		log.Fatalf("could not initialize database connection: %s", err)
 	}
-	defer conn.Close(context.Background())
-
-	// Example query to test connection
-	var version string
-	if err := conn.QueryRow(context.Background(), "SELECT version()").Scan(&version); err != nil {
-		log.Fatalf("Query failed: %v", err)
-	}
-
-	log.Println("Connected to:", version)
+	defer db.Close()
 
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {

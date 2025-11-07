@@ -22,7 +22,6 @@ func NewRepository(pool *pgxpool.Pool) Repository {
 	}
 }
 
-// Change to edit user profile
 func (r *postgresRepository) CreateUser(ctx context.Context, username, email, passwordHash string) (User, error) {
 	createdUser, err := r.queries.CreateUser(ctx, db.CreateUserParams{
 		Username:     username,

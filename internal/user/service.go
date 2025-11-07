@@ -9,8 +9,6 @@ import (
 )
 
 var ErrNotFound = errors.New("not found")
-
-// Add a new error for bad credentials
 var ErrInvalidCredentials = errors.New("invalid email or password")
 
 type Service interface {
@@ -41,7 +39,9 @@ func (s *service) Register(ctx context.Context, username, email, password string
 	return user, nil
 }
 
+// Login handles the user login business logic.
 func (s *service) Login(ctx context.Context, email, password string) (User, error) {
+	// Retrieve the user by email from the repository.
 	user, err := s.repo.GetUserByEmail(ctx, email)
 	if err != nil {
 		// If the user is not found, return the invalid credentials error.
