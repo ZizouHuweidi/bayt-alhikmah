@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/zizouhuweidi/bayt-alhikmah/internal/platform/database"
+	"github.com/zizouhuweidi/bayt-alhikmah/internal/database"
 	"github.com/zizouhuweidi/bayt-alhikmah/internal/server"
 	"github.com/zizouhuweidi/bayt-alhikmah/internal/user"
 
