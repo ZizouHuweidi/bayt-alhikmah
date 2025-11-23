@@ -3,42 +3,37 @@ package server
 import (
 	"net/http"
 
+	_ "yalla-go/docs" // Import docs
+	customMiddleware "yalla-go/internal/middleware"
+
 	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	echoSwagger "github.com/swaggo/echo-swagger"
 )
 
-func (s *Server) RegisterRoutes(e *echo.Echo) {
-	e.Use(middleware.Logger())
-	e.Use(middleware.Recover())
-	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		// TODO: Change for prod
-		AllowOrigins:     []string{"*"},
-		AllowMethods:     []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete},
-		AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization},
-		AllowCredentials: true,
-	}))
+func (s *Server) RegisterRoutes() {
+	e := s.Echo
 
 	e.GET("/health", s.healthHandler)
 
-	apiV1 := e.Group("/api/v1")
+	api := e.Group("/api/v1")
 
-	// Public user routes (login/register)
-	userPublicGroup := apiV1.Group("/users")
-	s.userHandler.RegisterRoutes(userPublicGroup)
+	// Swagger
+	e.GET("/swagger/*", echoSwagger.WrapHandler)
 
-	// Protected routes that require authentication
-	protectedGroup := apiV1.Group("")
-	protectedGroup.Use(s.AuthMiddleware()) // Apply the JWT middleware
+	// Auth Routes
+	s.AuthHandler.RegisterRoutes(api)
 
-	// Add protected user routes to this group
-	s.userHandler.RegisterProtectedRoutes(protectedGroup.Group("/users"))
-
-	// bookGroup := apiV1.Group("/books")
-	// s.bookHandler.RegisterRoutes(bookGroup)
+	// Protected Routes
+	protected := api.Group("")
+	protected.Use(customMiddleware.Auth(s.Config.JWTSecret))
+	protected.Use(customMiddleware.CasbinMiddleware(s.RBACService))
+	s.UserHandler.RegisterRoutes(protected)
 }
 
 func (s *Server) healthHandler(c echo.Context) error {
-	// TODO: Add database health check
-
-	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"status": "up",
+		"db":     s.DB.Health(),
+		"redis":  s.Redis.Health(),
+	})
 }

@@ -4,27 +4,61 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
+	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jmoiron/sqlx"
 )
 
-func New() (*pgxpool.Pool, error) {
-	url := os.Getenv("DATABASE_URL")
-	if url == "" {
-		return nil, fmt.Errorf("DATABASE_URL environment variable is not set")
-	}
+type Service interface {
+	Health() map[string]string
+	Close() error
+	GetDB() *sqlx.DB
+}
 
-	pool, err := pgxpool.New(context.Background(), url)
+type service struct {
+	db *sqlx.DB
+}
+
+func New(dsn string) Service {
+	db, err := sqlx.Connect("pgx", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create database connection pool: %w", err)
+		log.Fatalf("cannot connect to db: %v", err)
 	}
 
-	if err := pool.Ping(context.Background()); err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("failed to ping database: %w", err)
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(25)
+	db.SetConnMaxLifetime(5 * time.Minute)
+
+	return &service{
+		db: db,
+	}
+}
+
+func (s *service) Health() map[string]string {
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	stats := make(map[string]string)
+
+	err := s.db.PingContext(ctx)
+	if err != nil {
+		stats["status"] = "down"
+		stats["error"] = fmt.Sprintf("db down: %v", err)
+		return stats
 	}
 
-	log.Println("Database connection pool established")
-	return pool, nil
+	stats["status"] = "up"
+	stats["message"] = "It's healthy"
+	stats["open_connections"] = fmt.Sprintf("%d", s.db.Stats().OpenConnections)
+
+	return stats
+}
+
+func (s *service) Close() error {
+	return s.db.Close()
+}
+
+func (s *service) GetDB() *sqlx.DB {
+	return s.db
 }

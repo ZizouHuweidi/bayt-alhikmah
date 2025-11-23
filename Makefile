@@ -1,109 +1,147 @@
-# Load environment variables from .env file
-include .env
-export
+# ==================================================================================== #
+# HELPERS
+# ==================================================================================== #
 
-# ====================================================================================
-# VARIABLES
-# ====================================================================================
-
-# This is the connection string for the migrate tool running inside Docker.
-# It uses the DB_HOST service name ('db') to connect to the postgres container.
-POSTGRES_URL := postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}?sslmode=disable
-
-# Absolute path to the migrations directory
-MIGRATIONS_ROOT := $(shell pwd)/migrations
-
-# Docker network name from docker-compose.yml
-NETWORK := bayt-alhikmah_bayt-alhikmah-net
-
-# ====================================================================================
-# HELP
-# ====================================================================================
-
+## help: print this help message
 .PHONY: help
-help: ## Display this help screen
-	@awk 'BEGIN {FS = ":.*##"; printf "Usage:\n  make \033[36m<target>\033[0m\n\nTargets:\n"} /^[a-zA-Z0-9_%\/-]+:.*?##/ { printf "  \033[36m%-25s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+help:
+	@echo 'Usage:'
+	@sed -n 's/^##//p' ${MAKEFILE_LIST} | column -t -s ':' |  sed -e 's/^/ /'
 
-# ====================================================================================
-# DEVELOPMENT WORKFLOW
-# ====================================================================================
+# ==================================================================================== #
+# DEVELOPMENT
+# ==================================================================================== #
 
-.PHONY: run
-run: ## Run the application locally (without live reload)
-	@go run cmd/api/main.go
+## up: start core services (App, DB, Redis, Traefik) in Dev mode
+.PHONY: up
+up:
+	docker-compose up -d
 
-.PHONY: watch
-watch: ## Run the application with Air for live reloading
-	@if ! command -v air &> /dev/null; then \
-		echo "Air not found. Installing..."; \
-		go install github.com/air-verse/air@latest; \
-	fi
-	@air
+## quick-start: start core services and view logs
+.PHONY: quick-start
+quick-start: up logs
 
-.PHONY: docker/up
-docker/up: ## Start all services with Docker Compose
-	@docker compose up --build -d
+## install-tools: install development tools
+.PHONY: install-tools
+install-tools:
+	go install github.com/air-verse/air@latest
+	go install github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	go install github.com/swaggo/swag/cmd/swag@latest
 
-.PHONY: docker/down
-docker/down: ## Stop all services with Docker Compose
-	@docker compose down
+## up-prod: start core services in Prod mode (no overrides)
+.PHONY: up-prod
+up-prod:
+	docker-compose -f docker-compose.yml up -d
 
-.PHONY: docker/logs
-docker/logs: ## Follow logs for the app service
-	@docker compose logs -f app
+## up-traefik: start production proxy
+.PHONY: up-traefik
+up-traefik:
+	docker-compose -f docker-compose.traefik.yml up -d
 
-# ====================================================================================
-# DATABASE & MIGRATIONS
-# ====================================================================================
+## up-full: start all services including observability stack
+.PHONY: up-full
+up-full:
+	docker-compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.observability.yml up -d
 
-.PHONY: db/generate
-db/generate: ## Generate Go code from SQL queries using SQLc
-	@if ! command -v sqlc &> /dev/null; then \
-		echo "sqlc not found. Installing..."; \
-		go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest; \
-	fi
-	@sqlc generate
+## down: stop all services
+.PHONY: down
+down:
+	docker-compose -f docker-compose.yml -f docker-compose.observability.yml down --remove-orphans
 
-.PHONY: migrate/new
-migrate/new: ## Create new up/down migration files. Usage: make migrate/new name=create_books_table
-	@docker run --rm -v $(MIGRATIONS_ROOT):/migrations migrate/migrate create -ext sql -dir /migrations -seq $(name)
+## logs: view logs for all services
+.PHONY: logs
+logs:
+	docker-compose -f docker-compose.yml -f docker-compose.observability.yml logs -f
 
-.PHONY: migrate/up
-migrate/up: ## Apply all available 'up' migrations
-	@docker run --rm -v $(MIGRATIONS_ROOT):/migrations --network $(NETWORK) migrate/migrate -path=/migrations/ -database '$(POSTGRES_URL)' up
+## setup: install tools, tidy, migrate, and seed
+.PHONY: setup
+setup: install-tools tidy migrate-up seed
 
-.PHONY: migrate/down
-migrate/down: ## Revert the last migration
-	@docker run --rm -v $(MIGRATIONS_ROOT):/migrations --network $(NETWORK) migrate/migrate -path=/migrations/ -database '$(POSTGRES_URL)' down 1
+# ==================================================================================== #
+# QUALITY CONTROL
+# ==================================================================================== #
 
-.PHONY: migrate/down/all
-migrate/down/all: ## Revert all migrations
-	@docker run --rm -v $(MIGRATIONS_ROOT):/migrations --network $(NETWORK) migrate/migrate -path=/migrations/ -database '$(POSTGRES_URL)' down -all
+## swagger: generate swagger docs
+.PHONY: swagger
+swagger:
+	go run github.com/swaggo/swag/cmd/swag init -g cmd/api/main.go
 
-.PHONY: db/connect
-db/connect: ## Connect to the running PostgreSQL database using psql
-	@docker compose exec -u postgres db psql -d ${DB_NAME}
-
-# ====================================================================================
-# QUALITY & TESTING
-# ====================================================================================
-
-.PHONY: build
-build: ## Build the application binary
-	@echo "Building..."
-	@go build -o build/app cmd/api/main.go
-
+## test: run all tests
 .PHONY: test
-test: ## Run all Go tests
-	@echo "Running tests..."
-	@go test ./... -v
+test:
+	go test -v -race ./...
 
+## lint: run linters
+.PHONY: lint
+lint:
+	golangci-lint run
+
+## lint-fix: run linters and fix issues
+.PHONY: lint-fix
+lint-fix:
+	golangci-lint run --fix
+
+## tidy: tidy modfiles and format .go files
 .PHONY: tidy
-tidy: ## Tidy go.mod and go.sum files
-	@go mod tidy
-	@go mod verify
+tidy:
+	go mod tidy
+	go fmt ./...
 
-.PHONY: clean
-clean: ## Clean the build binary
-	@echo "Cleaning..."
-	@rm -f build/app
+# ==================================================================================== #
+# BUILD & RUN
+# ==================================================================================== #
+
+## build: build the binary
+.PHONY: build
+build:
+	go build -o bin/server ./cmd/api
+
+## run: run the binary (requires DB on localhost)
+.PHONY: run
+run: build
+	./bin/server
+
+## seed: seed the database with initial data (admin user)
+.PHONY: seed
+seed:
+	go run cmd/seeder/main.go
+
+## docker-up-prod: start production containers
+.PHONY: docker-up-prod
+docker-up-prod:
+	docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+
+# ==================================================================================== #
+# MIGRATIONS
+# ==================================================================================== #
+
+## migrate-create name=$1: create a new migration file
+.PHONY: migrate-create
+migrate-create:
+	migrate create -seq -ext=.sql -dir=./migrations ${name}
+
+## migrate-up: apply all up migrations
+.PHONY: migrate-up
+migrate-up:
+	migrate -path=./migrations -database="${DB_DSN}" up
+
+## migrate-down steps=$1: rollback the last migration (default 1 step)
+.PHONY: migrate-down
+migrate-down:
+	migrate -path=./migrations -database="${DB_DSN}" down ${steps}
+
+## migrate-status: check migration status
+.PHONY: migrate-status
+migrate-status:
+	migrate -path=./migrations -database="${DB_DSN}" version
+
+## migrate-goto version=$1: migrate to a specific version
+.PHONY: migrate-goto
+migrate-goto:
+	migrate -path=./migrations -database="${DB_DSN}" goto ${version}
+
+## migrate-force version=$1: force a specific version
+.PHONY: migrate-force
+migrate-force:
+	migrate -path=./migrations -database="${DB_DSN}" force ${version}

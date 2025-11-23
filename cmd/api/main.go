@@ -2,77 +2,96 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 	"time"
 
-	"github.com/zizouhuweidi/bayt-alhikmah/internal/database"
-	"github.com/zizouhuweidi/bayt-alhikmah/internal/server"
-	"github.com/zizouhuweidi/bayt-alhikmah/internal/user"
+	"yalla-go/internal/auth"
+	"yalla-go/internal/config"
+	"yalla-go/internal/database"
+	"yalla-go/internal/email"
+	"yalla-go/internal/redis"
+	"yalla-go/internal/server"
+	"yalla-go/internal/telemetry"
+	"yalla-go/internal/user"
+	"yalla-go/internal/validator"
 
-	_ "github.com/joho/godotenv/autoload"
+	"github.com/markbates/goth"
+	"github.com/markbates/goth/providers/google"
 )
 
-func gracefulShutdown(apiServer *http.Server, done chan bool) {
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
-	<-ctx.Done()
-
-	log.Println("shutting down gracefully, press Ctrl+C again to force")
-	stop()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := apiServer.Shutdown(ctx); err != nil {
-		log.Printf("Server forced to shutdown with error: %v", err)
-	}
-
-	log.Println("Server exiting")
-
-	done <- true
-}
-
+// @title Go Backend Template API
+// @version 1.0
+// @description A production-ready Go backend starter template.
+// @host localhost:8080
+// @BasePath /api/v1
 func main() {
-	port, _ := strconv.Atoi(os.Getenv("PORT"))
-	if port == 0 {
-		port = 8080
-	}
-
-	db, err := database.New()
+	// Load Config
+	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("could not initialize database connection: %s", err)
-	}
-	defer db.Close()
-
-	jwtSecret := os.Getenv("JWT_SECRET")
-	if jwtSecret == "" {
-		log.Fatal("JWT_SECRET environment variable is not set")
+		log.Fatalf("failed to load config: %v", err)
 	}
 
-	userRepo := user.NewRepository(db)
-	userSvc := user.NewService(userRepo)
-	userHandler := user.NewHandler(userSvc, jwtSecret)
+	// Init Telemetry
+	shutdown, err := telemetry.InitTracer(context.Background())
+	if err != nil {
+		log.Printf("failed to init tracer: %v", err)
+	}
+	defer func() {
+		if err := shutdown(context.Background()); err != nil {
+			log.Printf("failed to shutdown tracer: %v", err)
+		}
+	}()
 
-	srv := server.NewServer(server.Config{
-		Port:        port,
-		UserHandler: userHandler,
-		JWTSecret:   jwtSecret,
-	})
+	// Init DB
+	db := database.New(cfg.DB.DSN)
 
-	done := make(chan bool, 1)
-	go gracefulShutdown(srv, done)
+	// Init Redis
+	rdb := redis.New(cfg.Redis.Addr)
 
-	log.Printf("Server starting on port %d", port)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		panic(fmt.Sprintf("http server error: %s", err))
+	// Init Validator
+	v := validator.New()
+
+	// Init Email
+	mailer := email.NewSender(cfg.SMTP.Host, cfg.SMTP.Port, cfg.SMTP.Username, cfg.SMTP.Password, cfg.SMTP.Sender)
+
+	// Init Repos & Services
+	userRepo := user.NewRepository(db.GetDB())
+	userService := user.NewService(userRepo, cfg.JWTSecret, mailer, cfg.FrontendHost)
+
+	// Init Handlers
+	authHandler := auth.NewHandler(userService, v)
+	userHandler := user.NewHandler(userRepo)
+
+	// Init OAuth Providers
+	goth.UseProviders(
+		google.New(cfg.OAuth.Google.ClientID, cfg.OAuth.Google.ClientSecret, cfg.OAuth.Google.CallbackURL),
+	)
+
+	// Init Server
+	srv := server.NewServer(cfg, db, rdb, authHandler, userHandler)
+
+	// Graceful Shutdown
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		if err := srv.Start(); err != nil {
+			log.Printf("Server shut down: %v", err)
+		}
+	}()
+
+	<-quit
+	log.Println("Shutting down server...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := srv.Echo.Shutdown(ctx); err != nil {
+		log.Fatalf("failed to shutdown server: %v", err)
 	}
 
-	<-done
-	log.Println("Graceful shutdown complete.")
+	log.Println("Server exited properly")
 }
