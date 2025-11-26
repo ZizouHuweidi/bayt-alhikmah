@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   api:
@@ -9,7 +9,12 @@ services:
     environment:
       - PORT=8080
       - APP_ENV=${APP_ENV}
-      - DB_DSN=${DB_DSN}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - DB_SSLMODE=${DB_SSLMODE}
       - REDIS_ADDR=${REDIS_ADDR}
       - JWT_SECRET=${JWT_SECRET}
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT}
@@ -23,9 +28,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    networks:
-      - traefik-public
-      - backend
+    network_mode: "host"
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=traefik-public"
@@ -49,12 +52,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}" ]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 5s
       timeout: 5s
       retries: 5
-    networks:
-      - backend
+    network_mode: "host"
 
   pgadmin:
     image: dpage/pgadmin4
@@ -62,9 +64,7 @@ services:
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@example.com}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
-    networks:
-      - traefik-public
-      - backend
+    network_mode: "host"
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=traefik-public"
@@ -84,19 +84,12 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
-    networks:
-      - backend
+    network_mode: "host"
 
 volumes:
   postgres_data:
   redis_data:
-
-
-networks:
-  backend:
-  traefik-public:
-    external: true

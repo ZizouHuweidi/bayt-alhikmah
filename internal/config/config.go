@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 
@@ -56,7 +57,14 @@ func Load() (*Config, error) {
 		Port:   port,
 		AppEnv: getEnv("APP_ENV", "dev"),
 		DB: DBConfig{
-			DSN: getEnv("DB_DSN", "postgres://postgres:postgres@localhost:5432/blueprint?sslmode=disable"),
+			DSN: fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
+				getEnv("DB_USER", "postgres"),
+				getEnv("DB_PASSWORD", "postgres"),
+				getEnv("DB_HOST", "localhost"),
+				getEnvAsInt("DB_PORT", 5432),
+				getEnv("DB_NAME", "albayt"),
+				getEnv("DB_SSLMODE", "disable"),
+			),
 		},
 		Redis: RedisConfig{
 			Addr: getEnv("REDIS_ADDR", "localhost:6379"),

@@ -1,73 +1,42 @@
 version: '3.8'
 
 services:
-  proxy:
-    image: traefik:v3.0
-    ports:
-      - "80:80"
-      - "8090:8080" # Dashboard
-    command:
-      - "--api.insecure=true"
-      - "--providers.docker=true"
-      - "--providers.docker.exposedbydefault=false"
-      - "--providers.docker.constraints=Label(`traefik.constraint-label`, `traefik-public`)"
-      - "--entrypoints.http.address=:80"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    labels:
-      - "traefik.enable=true"
-      - "traefik.constraint-label=traefik-public"
-      - "traefik.http.middlewares.https-redirect.contenttype.autodetect=false" # Dummy for dev
-    networks:
-      - traefik-public
+  # Proxy disabled due to host networking limitations
+  # proxy:
+  #   image: traefik:v3.0
+  #   ...
 
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    # Use base image to skip build and avoid network issues
+    image: golang:1.24.4-alpine
     restart: "no"
-    command: [ "air", "-c", ".air.toml" ]
+    # Run using go run. We use sh -c to ensure environment is ready if needed.
+    # Note: air is not installed in base image, so we use go run.
+    command: sh -c "go run cmd/api/main.go"
+    working_dir: /app
     volumes:
       - .:/app
-    ports:
-      - "8080:8080" # Direct access
     environment:
-      - SMTP_HOST=mailpit
+      - SMTP_HOST=localhost
       - SMTP_PORT=1025
       - SMTP_SENDER=noreply@example.com
+    network_mode: "host"
 
   postgres:
     restart: "no"
-    ports:
-      - "5432:5432"
+    network_mode: "host"
 
   redis:
     restart: "no"
-    ports:
-      - "6379:6379"
+    network_mode: "host"
 
   pgadmin:
     restart: "no"
-    ports:
-      - "5050:80"
+    network_mode: "host"
+    environment:
+      PGADMIN_LISTEN_PORT: 5050
 
   mailpit:
     image: axllent/mailpit
     restart: "no"
-    ports:
-      - "1025:1025" # SMTP
-      - "8025:8025" # UI
-    networks:
-      - backend
-      - traefik-public
-    labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=traefik-public"
-      - "traefik.constraint-label=traefik-public"
-      - "traefik.http.services.mailpit.loadbalancer.server.port=8025"
-      - "traefik.http.routers.mailpit-http.rule=Host(`mailpit.${DOMAIN?Variable not set}`)"
-      - "traefik.http.routers.mailpit-http.entrypoints=http"
-
-networks:
-  traefik-public:
-    external: false
+    network_mode: "host"
