@@ -3,9 +3,9 @@ package user
 import (
 	"net/http"
 
-	"yalla-go/internal/json"
-	"yalla-go/internal/jwt"
-	"yalla-go/internal/response"
+	"bayt-alhikmah/internal/json"
+	"bayt-alhikmah/internal/jwt"
+	"bayt-alhikmah/internal/response"
 
 	"github.com/labstack/echo/v4"
 )

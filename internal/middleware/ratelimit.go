@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"yalla-go/internal/redis"
-	"yalla-go/internal/response"
+	"bayt-alhikmah/internal/redis"
+	"bayt-alhikmah/internal/response"
 
 	"github.com/labstack/echo/v4"
 )

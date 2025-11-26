@@ -1,9 +1,9 @@
 package middleware
 
 import (
-	"yalla-go/internal/json"
-	"yalla-go/internal/jwt"
-	"yalla-go/internal/rbac"
+	"bayt-alhikmah/internal/json"
+	"bayt-alhikmah/internal/jwt"
+	"bayt-alhikmah/internal/rbac"
 
 	"github.com/labstack/echo/v4"
 )

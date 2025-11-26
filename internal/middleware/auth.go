@@ -3,8 +3,8 @@ package middleware
 import (
 	"strings"
 
-	"yalla-go/internal/json"
-	"yalla-go/internal/jwt"
+	"bayt-alhikmah/internal/json"
+	"bayt-alhikmah/internal/jwt"
 
 	"github.com/labstack/echo/v4"
 )

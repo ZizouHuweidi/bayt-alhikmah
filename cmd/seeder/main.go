@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
-	"yalla-go/internal/config"
-	"yalla-go/internal/database"
+	"bayt-alhikmah/internal/config"
+	"bayt-alhikmah/internal/database"
 
 	"github.com/jmoiron/sqlx"
 	"golang.org/x/crypto/bcrypt"

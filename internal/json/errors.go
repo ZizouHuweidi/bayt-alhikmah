@@ -3,7 +3,7 @@ package json
 import (
 	"net/http"
 
-	"yalla-go/internal/response"
+	"bayt-alhikmah/internal/response"
 
 	"github.com/labstack/echo/v4"
 )

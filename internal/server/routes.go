@@ -3,8 +3,8 @@ package server
 import (
 	"net/http"
 
-	_ "yalla-go/docs" // Import docs
-	customMiddleware "yalla-go/internal/middleware"
+	_ "bayt-alhikmah/docs" // Import docs
+	customMiddleware "bayt-alhikmah/internal/middleware"
 
 	"github.com/labstack/echo/v4"
 	echoSwagger "github.com/swaggo/echo-swagger"

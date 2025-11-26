@@ -1,12 +1,12 @@
 package user
 
 import (
+	"bayt-alhikmah/internal/email"
+	"bayt-alhikmah/internal/jwt"
 	"context"
 	"errors"
 	"fmt"
 	"time"
-	"yalla-go/internal/email"
-	"yalla-go/internal/jwt"
 
 	"golang.org/x/crypto/bcrypt"
 )

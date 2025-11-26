@@ -3,10 +3,10 @@ package auth
 import (
 	"net/http"
 
-	"yalla-go/internal/json"
-	"yalla-go/internal/response"
-	"yalla-go/internal/user"
-	"yalla-go/internal/validator"
+	"bayt-alhikmah/internal/json"
+	"bayt-alhikmah/internal/response"
+	"bayt-alhikmah/internal/user"
+	"bayt-alhikmah/internal/validator"
 
 	"github.com/labstack/echo/v4"
 	"github.com/markbates/goth/gothic"
