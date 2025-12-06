@@ -1,18 +1,18 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:alpine
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: bayt_alhikmah
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - bayt-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -22,8 +22,12 @@ services:
       context: .
       dockerfile: src/BaytAlHikmah.Api/Dockerfile
     environment:
-      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=bayt_alhikmah;Username=postgres;Password=password
-      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=${CONNECTION_STRING}
+      - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT}
+      - JwtSettings__Secret=${JWT_SECRET}
+      - JwtSettings__Issuer=${JWT_ISSUER}
+      - JwtSettings__Audience=${JWT_AUDIENCE}
+      - JwtSettings__ExpiryMinutes=${JWT_EXPIRY_MINUTES}
     ports:
       - "5000:8080"
     depends_on:
@@ -34,6 +38,7 @@ services:
 
 volumes:
   postgres_data:
+
 
 networks:
   bayt-network:
