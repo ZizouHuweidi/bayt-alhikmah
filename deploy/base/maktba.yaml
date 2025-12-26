@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: maktba
+  labels:
+    app: maktba
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: maktba
+  template:
+    metadata:
+      labels:
+        app: maktba
+    spec:
+      containers:
+        - name: maktba
+          image: maktba-image
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+            - containerPort: 8081
+          env:
+            - name: ConnectionStrings__CatalogDatabase
+              value: "Host=postgres;Port=5432;Database=maksad_catalog;Username=postgres;Password=postgres"
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Development"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: maktba
+spec:
+  type: ClusterIP
+  selector:
+    app: maktba
+  ports:
+    - port: 80
+      targetPort: 8080
+      name: http

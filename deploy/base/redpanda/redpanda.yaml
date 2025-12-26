@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redpanda
+spec:
+  selector:
+    matchLabels:
+      app: redpanda
+  serviceName: redpanda
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: redpanda
+    spec:
+      containers:
+      - name: redpanda
+        image: docker.redpanda.com/redpandadata/redpanda:v23.2.14
+        command:
+        - redpanda
+        - start
+        - --smp 1 
+        - --memory 1G 
+        - --reserve-memory 0M 
+        - --overprovisioned 
+        - --node-id 0
+        - --check=false
+        - --kafka-addr PLAINTEXT://0.0.0.0:9092,OUTSIDE://0.0.0.0:9094
+        - --advertise-kafka-addr PLAINTEXT://redpanda-0.redpanda.default.svc.cluster.local:9092,OUTSIDE://localhost:9094
+        - --pandaproxy-addr 0.0.0.0:8082
+        - --advertise-pandaproxy-addr redpanda-0.redpanda.default.svc.cluster.local:8082
+        ports:
+        - containerPort: 9092
+          name: internal
+        - containerPort: 9094
+          name: external
+        - containerPort: 8081
+          name: schema-registry
+        - containerPort: 8082
+          name: proxy
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redpanda
+spec:
+  ports:
+  - name: internal
+    port: 9092
+    targetPort: 9092
+  - name: external
+    port: 9094
+    targetPort: 9094
+  - name: schema-registry
+    port: 8081
+    targetPort: 8081
+  selector:
+    app: redpanda
+  clusterIP: None
