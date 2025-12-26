@@ -19,11 +19,15 @@ spec:
         command:
         - redpanda
         - start
-        - --smp 1 
-        - --memory 1G 
-        - --reserve-memory 0M 
-        - --overprovisioned 
-        - --node-id 0
+        - --smp
+        - "1"
+        - --memory
+        - 1G
+        - --reserve-memory
+        - 0M
+        - --overprovisioned
+        - --node-id
+        - "0"
         - --check=false
         - --kafka-addr PLAINTEXT://0.0.0.0:9092,OUTSIDE://0.0.0.0:9094
         - --advertise-kafka-addr PLAINTEXT://redpanda-0.redpanda.default.svc.cluster.local:9092,OUTSIDE://localhost:9094

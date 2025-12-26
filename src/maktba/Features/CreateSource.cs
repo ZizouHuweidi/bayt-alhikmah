@@ -17,7 +17,7 @@ public static class CreateSource
     {
         var source = new Source
         {
-            Id = Guid.NewGuid(),
+            Id = Guid.CreateVersion7(),
             Title = request.Title,
             Type = request.Type,
             Description = request.Description,

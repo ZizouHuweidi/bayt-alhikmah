@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: postgres
-          image: postgres:15-alpine
+          image: postgres:18-alpine
           env:
             - name: POSTGRES_USER
               value: "postgres"
@@ -28,7 +28,7 @@ spec:
               name: postgres
           volumeMounts:
             - name: postgres-data
-              mountPath: /var/lib/postgresql/data
+              mountPath: /var/lib/postgresql
   volumeClaimTemplates:
     - metadata:
         name: postgres-data

@@ -5,4 +5,8 @@ resources:
   - postgres/statefulset.yaml
   - postgres/service.yaml
   - redpanda/redpanda.yaml
+  - observability/grafana-stack.yaml
+  - identity/kratos.yaml
+  - identity/kratos-config.yaml
   - maktba.yaml
+  - gateway/gateway.yaml

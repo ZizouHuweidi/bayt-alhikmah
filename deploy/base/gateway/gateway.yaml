@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  labels:
+    app: gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+    spec:
+      containers:
+        - name: gateway
+          image: devopsfaith/krakend:2.3
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: krakend-config
+              mountPath: /etc/krakend/krakend.json
+              subPath: krakend.json
+      volumes:
+        - name: krakend-config
+          configMap:
+            name: krakend-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+  selector:
+    app: gateway
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: krakend-config
+data:
+  krakend.json: |
+    {
+      "version": 3,
+      "name": "Bayt al Hikmah",
+      "port": 8080,
+      "cache_ttl": "300s",
+      "timeout": "3000ms",
+      "extra_config": {
+        "security/cors": {
+          "allow_origins": ["*"],
+          "allow_methods": ["GET", "POST", "PUT", "DELETE"],
+          "allow_headers": ["Content-Type", "Authorization"],
+          "expose_headers": ["Content-Length"],
+          "max_age": "12h"
+        }
+      },
+      "endpoints": [
+        {
+          "endpoint": "/v1/sources",
+          "method": "POST",
+          "output_encoding": "json",
+          "backend": [
+            {
+              "url_pattern": "/sources",
+              "host": ["http://maktba:8080"]
+            }
+          ]
+        },
+        {
+          "endpoint": "/v1/sources/{id}",
+          "method": "GET",
+          "output_encoding": "json",
+          "backend": [
+            {
+              "url_pattern": "/sources/{id}",
+              "host": ["http://maktba:8080"]
+            }
+          ]
+        },
+        {
+          "endpoint": "/auth/{rest}",
+          "method": "GET",
+          "backend": [
+            {
+              "url_pattern": "/{rest}",
+              "host": ["http://kratos:4433"]
+            }
+          ]
+        },
+        {
+          "endpoint": "/auth/{rest}",
+          "method": "POST",
+          "backend": [
+            {
+              "url_pattern": "/{rest}",
+              "host": ["http://kratos:4433"]
+            }
+          ]
+        }
+      ]
+    }
