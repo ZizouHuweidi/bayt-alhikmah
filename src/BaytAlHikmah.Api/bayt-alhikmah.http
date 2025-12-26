@@ -1,6 +1,0 @@
-@bayt_alhikmah_HostAddress = http://localhost:5253
-
-GET {{bayt_alhikmah_HostAddress}}/weatherforecast/
-Accept: application/json
-
-###

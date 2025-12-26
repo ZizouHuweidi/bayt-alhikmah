@@ -1,0 +1,27 @@
+{
+  "version": 3,
+  "endpoints": [
+    {
+      "endpoint": "/v1/my-notes",
+      "method": "GET",
+      "backend": [
+        {
+          "url_pattern": "/sessions/whoami",
+          "host": ["http://kratos:4433"],
+          "group": "auth",
+          "allow": ["id", "identity"]
+        },
+        {
+          "url_pattern": "/notes",
+          "host": ["http://al-warraq:8081"],
+          "group": "data"
+        }
+      ],
+      "extra_config": {
+        "proxy": {
+          "sequential": true
+        }
+      }
+    }
+  ]
+}
