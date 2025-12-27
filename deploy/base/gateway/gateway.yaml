@@ -74,6 +74,17 @@ data:
           ]
         },
         {
+          "endpoint": "/v1/sources",
+          "method": "GET",
+          "output_encoding": "json",
+          "backend": [
+            {
+              "url_pattern": "/sources",
+              "host": ["http://maktba:80"]
+            }
+          ]
+        },
+        {
           "endpoint": "/v1/sources/{id}",
           "method": "GET",
           "output_encoding": "json",

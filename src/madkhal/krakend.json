@@ -6,22 +6,10 @@
   "timeout": "3000ms",
   "extra_config": {
     "security/cors": {
-      "allow_origins": [
-        "*"
-      ],
-      "allow_methods": [
-        "GET",
-        "POST",
-        "PUT",
-        "DELETE"
-      ],
-      "allow_headers": [
-        "Content-Type",
-        "Authorization"
-      ],
-      "expose_headers": [
-        "Content-Length"
-      ],
+      "allow_origins": ["*"],
+      "allow_methods": ["GET", "POST", "PUT", "DELETE"],
+      "allow_headers": ["Content-Type", "Authorization"],
+      "expose_headers": ["Content-Length"],
       "max_age": "12h"
     }
   },
@@ -33,9 +21,18 @@
       "backend": [
         {
           "url_pattern": "/sources",
-          "host": [
-            "http://maktba:8080"
-          ]
+          "host": ["http://maktba:80"]
+        }
+      ]
+    },
+    {
+      "endpoint": "/v1/sources",
+      "method": "GET",
+      "output_encoding": "json",
+      "backend": [
+        {
+          "url_pattern": "/sources",
+          "host": ["http://maktba:80"]
         }
       ]
     },
@@ -46,9 +43,7 @@
       "backend": [
         {
           "url_pattern": "/sources/{id}",
-          "host": [
-            "http://maktba:8080"
-          ]
+          "host": ["http://maktba:80"]
         }
       ]
     },
@@ -58,9 +53,7 @@
       "backend": [
         {
           "url_pattern": "/{rest}",
-          "host": [
-            "http://kratos:4433"
-          ]
+          "host": ["http://kratos:4433"]
         }
       ]
     },
@@ -70,9 +63,7 @@
       "backend": [
         {
           "url_pattern": "/{rest}",
-          "host": [
-            "http://kratos:4433"
-          ]
+          "host": ["http://kratos:4433"]
         }
       ]
     }
