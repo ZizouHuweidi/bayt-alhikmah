@@ -20,9 +20,9 @@ spec:
             - name: POSTGRES_USER
               value: "postgres"
             - name: POSTGRES_PASSWORD
-              value: "postgres"
+              value: "hikmah_pass"
             - name: POSTGRES_DB
-              value: "maksad_catalog"
+              value: "hikmah_db"
           ports:
             - containerPort: 5432
               name: postgres

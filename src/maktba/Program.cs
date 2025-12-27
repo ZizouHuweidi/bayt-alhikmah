@@ -29,11 +29,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<CatalogContext>();
-    db.Database.Migrate();
-}
+app.MapGet("/healthz", () => Results.Ok("Healthy"));
 
 app.MapPost("/sources", Maktba.Features.CreateSource.Handle);
 app.MapGet("/sources/{id}", Maktba.Features.GetSource.Handle);

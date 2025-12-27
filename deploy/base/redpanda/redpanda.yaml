@@ -15,25 +15,22 @@ spec:
     spec:
       containers:
       - name: redpanda
-        image: docker.redpanda.com/redpandadata/redpanda:v23.2.14
+        image: docker.redpanda.com/redpandadata/redpanda:v24.2.5
         command:
+        - rpk
         - redpanda
         - start
-        - --smp=1 
-        - --memory=1G
-        - --kafka-addr=PLAINTEXT://0.0.0.0:9092,OUTSIDE://0.0.0.0:9094
-        - --advertise-kafka-addr=PLAINTEXT://redpanda-0.redpanda.default.svc.cluster.local:9092,OUTSIDE://localhost:9094
-        - --pandaproxy-addr=0.0.0.0:8082
-        - --advertise-pandaproxy-addr=redpanda-0.redpanda.default.svc.cluster.local:8082
+        - --mode
+        - dev-container
+        - --kafka-addr
+        - "0.0.0.0:9092"
+        - --advertise-kafka-addr
+        - "redpanda:9092"
         ports:
         - containerPort: 9092
-          name: internal
-        - containerPort: 9094
-          name: external
-        - containerPort: 8081
-          name: schema-registry
-        - containerPort: 8082
-          name: proxy
+          name: kafka
+        - containerPort: 9644
+          name: admin
 ---
 apiVersion: v1
 kind: Service
@@ -41,15 +38,11 @@ metadata:
   name: redpanda
 spec:
   ports:
-  - name: internal
+  - name: kafka
     port: 9092
     targetPort: 9092
-  - name: external
-    port: 9094
-    targetPort: 9094
-  - name: schema-registry
-    port: 8081
-    targetPort: 8081
+  - name: admin
+    port: 9644
+    targetPort: 9644
   selector:
     app: redpanda
-  clusterIP: None

@@ -5,10 +5,10 @@ metadata:
 data:
   kratos.yml: |
     version: v0.13.0
-    dsn: postgres://postgres:postgres@postgres:5432/kratos?sslmode=disable&max_conns=20&max_idle_conns=4
+    dsn: postgres://postgres:hikmah_pass@postgres:5432/hikmah_db?sslmode=disable&max_conns=20&max_idle_conns=4
     serve:
       public:
-        base_url: http://localhost:4433/
+        base_url: http://localhost:8080/auth
         cors:
           enabled: true
       admin:

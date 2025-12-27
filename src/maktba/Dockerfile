@@ -19,4 +19,6 @@ RUN dotnet publish "maktba.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:Us
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
+ENV DOTNET_WATCH_SUPPRESS_LAUNCH_BROWSER=1
+ENV DOTNET_USE_POLLING_FILE_WATCHER=1
 ENTRYPOINT ["dotnet", "maktba.dll"]

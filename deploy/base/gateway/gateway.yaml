@@ -16,7 +16,8 @@ spec:
     spec:
       containers:
         - name: gateway
-          image: devopsfaith/krakend:2.3
+          image: gateway-image
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
           volumeMounts:
@@ -68,7 +69,7 @@ data:
           "backend": [
             {
               "url_pattern": "/sources",
-              "host": ["http://maktba:8080"]
+              "host": ["http://maktba:80"]
             }
           ]
         },
@@ -79,7 +80,7 @@ data:
           "backend": [
             {
               "url_pattern": "/sources/{id}",
-              "host": ["http://maktba:8080"]
+              "host": ["http://maktba:80"]
             }
           ]
         },
