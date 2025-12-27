@@ -17,8 +17,14 @@ Log.Logger = new LoggerConfiguration()
     .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}")
     .WriteTo.OpenTelemetry(options =>
     {
-        options.Endpoint = "http://tempo:4317";
-        options.Protocol = Serilog.Sinks.OpenTelemetry.OtlpProtocol.Grpc;
+        // Logs can go to Loki via OTLP or direct
+        // Let's use the OTLP endpoint of Tempo for traces, 
+        // but for logs we can send to Loki if it has OTLP enabled.
+        // Or we can send both to a collector.
+        // For simplicity in this setup, let's keep OTEL sink and 
+        // we'll assume a collector or Loki OTLP endpoint.
+        options.Endpoint = "http://loki:3100/otlp"; 
+        options.Protocol = Serilog.Sinks.OpenTelemetry.OtlpProtocol.HttpProtobuf;
         options.ResourceAttributes = new Dictionary<string, object>
         {
             ["service.name"] = "maktba"
@@ -64,16 +70,15 @@ try
             .AddAspNetCoreInstrumentation()
             .AddHttpClientInstrumentation()
             .AddRuntimeInstrumentation()
-            .AddOtlpExporter(options =>
-            {
-                options.Endpoint = new Uri("http://tempo:4317");
-                options.Protocol = OpenTelemetry.Exporter.OtlpExportProtocol.Grpc;
-            }));
+            .AddPrometheusExporter()); // Expose for scraping
 
     builder.Services.AddDbContext<CatalogContext>(options =>
         options.UseNpgsql(builder.Configuration.GetConnectionString("CatalogDatabase")));
 
     var app = builder.Build();
+
+    // Map Prometheus scraping endpoint
+    app.UseOpenTelemetryPrometheusScrapingEndpoint();
 
     if (app.Environment.IsDevelopment())
     {

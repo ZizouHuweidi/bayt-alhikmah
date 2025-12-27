@@ -48,22 +48,79 @@
       ]
     },
     {
-      "endpoint": "/auth/{rest}",
+      "endpoint": "/auth/self-service/registration/api",
       "method": "GET",
+      "output_encoding": "no-op",
+      "input_query_strings": ["*"],
       "backend": [
         {
-          "url_pattern": "/{rest}",
-          "host": ["http://kratos:4433"]
+          "url_pattern": "/self-service/registration/api",
+          "host": ["http://kratos:4433"],
+          "encoding": "no-op"
         }
       ]
     },
     {
-      "endpoint": "/auth/{rest}",
-      "method": "POST",
+      "endpoint": "/auth/self-service/login/api",
+      "method": "GET",
+      "output_encoding": "no-op",
+      "input_query_strings": ["*"],
       "backend": [
         {
-          "url_pattern": "/{rest}",
-          "host": ["http://kratos:4433"]
+          "url_pattern": "/self-service/login/api",
+          "host": ["http://kratos:4433"],
+          "encoding": "no-op"
+        }
+      ]
+    },
+    {
+      "endpoint": "/auth/self-service/registration",
+      "method": "POST",
+      "output_encoding": "no-op",
+      "input_query_strings": ["*"],
+      "backend": [
+        {
+          "url_pattern": "/self-service/registration",
+          "host": ["http://kratos:4433"],
+          "encoding": "no-op"
+        }
+      ]
+    },
+    {
+      "endpoint": "/auth/self-service/login",
+      "method": "POST",
+      "output_encoding": "no-op",
+      "input_query_strings": ["*"],
+      "backend": [
+        {
+          "url_pattern": "/self-service/login",
+          "host": ["http://kratos:4433"],
+          "encoding": "no-op"
+        }
+      ]
+    },
+    {
+      "endpoint": "/auth/sessions/whoami",
+      "method": "GET",
+      "output_encoding": "no-op",
+      "input_query_strings": ["*"],
+      "backend": [
+        {
+          "url_pattern": "/sessions/whoami",
+          "host": ["http://kratos:4433"],
+          "encoding": "no-op"
+        }
+      ]
+    },
+    {
+      "endpoint": "/auth/health/ready",
+      "method": "GET",
+      "output_encoding": "no-op",
+      "backend": [
+        {
+          "url_pattern": "/health/ready",
+          "host": ["http://kratos:4433"],
+          "encoding": "no-op"
         }
       ]
     }

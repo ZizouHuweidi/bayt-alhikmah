@@ -16,6 +16,7 @@ spec:
       containers:
       - name: redpanda
         image: docker.redpanda.com/redpandadata/redpanda:v24.2.5
+        imagePullPolicy: IfNotPresent
         command:
         - rpk
         - redpanda
