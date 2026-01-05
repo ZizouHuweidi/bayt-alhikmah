@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Scrape Raw Event",
+  "type": "object",
+  "required": [
+    "event_id",
+    "event_type",
+    "aggregate_type",
+    "aggregate_id",
+    "timestamp",
+    "data"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "event_type": {
+      "type": "string",
+      "enum": ["scrape.raw"]
+    },
+    "aggregate_type": {
+      "type": "string",
+      "enum": ["ScrapeJob"]
+    },
+    "aggregate_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "data": {
+      "type": "object",
+      "required": ["url", "scraped_at"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "source_type": {
+          "type": "string",
+          "enum": ["book", "paper", "podcast", "video", "article", "essay"]
+        },
+        "scraped_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "raw_html": {
+          "type": "string"
+        },
+        "metadata": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

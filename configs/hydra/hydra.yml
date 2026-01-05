@@ -1,0 +1,37 @@
+version: v0.0.0
+
+dsn: postgres://maktaba:maktaba@postgres:5432/ory_hydra?sslmode=disable
+
+serve:
+  public:
+    base_url: http://localhost:4444/
+    cors:
+      enabled: true
+  admin:
+    base_url: http://hydra:4445/
+
+urls:
+  self:
+    issuer: http://localhost:4444/
+  consent: http://localhost:3000/consent
+  login: http://localhost:3000/login
+  logout: http://localhost:3000/logout
+  error: http://localhost:3000/error
+
+secrets:
+  system:
+    - PLEASE_CHANGE_ME_SECRET_3
+  cookie:
+    - PLEASE_CHANGE_ME_SECRET_4
+
+oidc:
+  subject_identifiers:
+    supported_types:
+      - pairwise
+      - public
+    pairwise:
+      salt: PLEASE_CHANGE_ME_SALT
+
+log:
+  level: debug
+  format: json

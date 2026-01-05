@@ -1,0 +1,39 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: "bayt-alhikmah"
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: "maktaba"
+    static_configs:
+      - targets: ["maktaba:8080"]
+    metrics_path: "/metrics"
+
+  - job_name: "bahith"
+    static_configs:
+      - targets: ["bahith:8003"]
+    metrics_path: "/metrics"
+
+  - job_name: "murshid"
+    static_configs:
+      - targets: ["murshid:8004"]
+    metrics_path: "/metrics"
+
+  - job_name: "redpanda"
+    static_configs:
+      - targets: ["redpanda:9644"]
+    metrics_path: "/metrics"
+
+  - job_name: "postgres"
+    static_configs:
+      - targets: ["postgres:9187"]
+
+  - job_name: "redis"
+    static_configs:
+      - targets: ["redis:6379"]
+

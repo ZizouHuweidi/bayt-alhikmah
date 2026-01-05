@@ -1,0 +1,75 @@
+errors:
+  handlers:
+    json:
+      enabled: true
+    redirect:
+      enabled: true
+      config:
+        to: http://localhost:3000/error
+
+log:
+  level: debug
+  format: json
+
+serve:
+  proxy:
+    port: 4455
+    cors:
+      enabled: true
+      allowed_origins:
+        - http://localhost:3000
+      allowed_methods:
+        - POST
+        - GET
+        - PUT
+        - PATCH
+        - DELETE
+      allowed_headers:
+        - Authorization
+        - Cookie
+        - Content-Type
+      expose_headers:
+        - Content-Type
+      allow_credentials: true
+
+access_rules:
+  matching_strategy: glob
+  repositories:
+    - file:///etc/config/oathkeeper/rules.json
+
+authenticators:
+  noop:
+    enabled: true
+  cookie_session:
+    enabled: true
+    config:
+      check_session_url: http://kratos:4433/sessions/whoami
+      preserve_path: true
+      extra_from: "@this"
+      subject_from: "identity.id"
+  jwt:
+    enabled: true
+    config:
+      jwks_urls:
+        - http://hydra:4444/.well-known/jwks.json
+
+authorizers:
+  allow:
+    enabled: true
+  remote_json:
+    enabled: true
+    config:
+      remote: http://keto:4434/check
+
+mutators:
+  noop:
+    enabled: true
+  id_token:
+    enabled: true
+    config:
+      issuer_url: http://localhost:4455/
+      jwks_url: file:///etc/config/oathkeeper/jwks.json
+      claims: |
+        {
+          "session": {{ .Extra | toJson }}
+        }
