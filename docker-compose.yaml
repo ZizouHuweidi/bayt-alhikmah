@@ -1,24 +1,43 @@
 services:
-  # Infrastructure Services
   postgres:
     image: pgvector/pgvector:pg18
     container_name: bayt-alhikmah-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_password_change_in_production}
-      POSTGRES_DB: ${POSTGRES_DB:-bayt_alhikmah}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
       - bayt-alhikmah
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: bayt-alhikmah-pgadmin
+    environment:
+      PGADMIN_DEFAULT_SERVER: ${PGADMIN_DEFAULT_SERVER:-postgres}
+      PGADMIN_SERVER_PORT: ${PGADMIN_SERVER_PORT:-5432}
+      PGADMIN_SERVER_HOST: ${PGADMIN_SERVER_HOST:-postgres}
+      PGADMIN_SERVER_USER: ${PGADMIN_SERVER_USER:-postgres}
+      PGADMIN_SERVER_PASSWORD: ${PGADMIN_SERVER_PASSWORD:-postgres_password_change_in_production}
+      PGADMIN_DEFAULT_DATABASE: ${PGADMIN_DEFAULT_DATABASE:-maktaba}
+      PGADMIN_CONFIG_SERVER_MODE: ${PGADMIN_CONFIG_SERVER_MODE:-single}
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - bayt-alhikmah
+    restart: unless-stopped
 
   redis:
     image: redis:8-alpine
@@ -28,7 +47,7 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -36,7 +55,7 @@ services:
       - bayt-alhikmah
 
   redpanda:
-    image: vectorized/redpanda:v23.2.4
+    image: docker.redpanda.com/redpandadata/redpanda:v25.3.4
     container_name: bayt-alhikmah-redpanda
     ports:
       - "${REDPANDA_KAFKA_PORT:-9092}:9092"
@@ -55,12 +74,32 @@ services:
     volumes:
       - redpanda_data:/var/lib/redpanda/data
     healthcheck:
-      test: [ "CMD-SHELL", "rpk cluster health" ]
+      test: ["CMD-SHELL", "rpk cluster health"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
       - bayt-alhikmah
+
+  redpanda-console:
+    container_name: bayt-alhikmah-redpanda-console
+    image: docker.redpanda.com/redpandadata/console:v3.4.0
+    networks:
+      - bayt-alhikmah
+    entrypoint: /bin/sh
+    command: -c 'echo "$$CONFIG_FILEPATH" > /tmp/config.yml; /app/console'
+    environment:
+      CONFIG_FILEPATH: /tmp/config.yml
+      CONFIG_FILE: |
+        kafka:
+          brokers: ["redpanda:9092"]
+        schemaRegistry:
+          enabled: true
+          urls: ["http://redpanda:9081"]
+        redpanda:
+          adminApi:
+            enabled: true
+            urls: ["http://redpanda:9644"]
 
   meilisearch:
     image: getmeili/meilisearch:v1.5
@@ -73,7 +112,15 @@ services:
       MEILI_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch_master_key_change_in_production}
       MEILI_ENV: development
     healthcheck:
-      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:7700/health" ]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:7700/health",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -82,9 +129,9 @@ services:
 
   # ORY Authentication Stack
   ory-kratos-migrate:
-    image: oryd/kratos:v0.13.0
+    image: oryd/kratos:v1.0.0
     environment:
-      - DSN=postgres://maktaba:maktaba@postgres:5432/ory_kratos?sslmode=disable
+      DSN: ${ORY_KRATOS_DB_URL:-postgres://ory_kratos:ory_kratos_change_in_production@postgres:5432/ory_kratos?sslmode=disable}
     volumes:
       - ./configs/kratos:/etc/config/kratos
     command: -c /etc/config/kratos/kratos.yml migrate sql -e --yes
@@ -95,17 +142,17 @@ services:
       - bayt-alhikmah
 
   ory-kratos:
-    image: oryd/kratos:v0.13.0
+    image: oryd/kratos:v1.0.0
     container_name: bayt-alhikmah-kratos
     ports:
-      - "4433:4433" # public
-      - "4434:4434" # admin
+      - "4433:4433"
+      - "4434:4434"
     environment:
-      DSN: postgres://maktaba:maktaba@postgres:5432/ory_kratos?sslmode=disable
+      DSN: ${ORY_KRATOS_DB_URL:-postgres://ory_kratos:ory_kratos_change_in_production@postgres:5432/ory_kratos?sslmode=disable}
       COURIERS_SMTP_CONNECTION_URI: smtps://test:test@mailslurper:1025
     volumes:
       - ./configs/kratos:/etc/config/kratos
-    command: serve -c /etc/config/kratos/kratos.yml --watch-courier
+    command: serve -c /etc/config/kratos/kratos.yml --dev
     depends_on:
       ory-kratos-migrate:
         condition: service_completed_successfully
@@ -113,9 +160,9 @@ services:
       - bayt-alhikmah
 
   ory-hydra-migrate:
-    image: oryd/hydra:v2.2.0
+    image: oryd/hydra:v2.0.0
     environment:
-      DSN: postgres://maktaba:maktaba@postgres:5432/ory_hydra?sslmode=disable
+      DSN: ${ORY_HYDRA_DB_URL:-postgres://ory_hydra:ory_hydra_change_in_production@postgres:5432/ory_hydra?sslmode=disable}
     command: migrate sql -e --yes
     depends_on:
       postgres:
@@ -124,13 +171,13 @@ services:
       - bayt-alhikmah
 
   ory-hydra:
-    image: oryd/hydra:v2.2.0
+    image: oryd/hydra:v2.0.0
     container_name: bayt-alhikmah-hydra
     ports:
-      - "4444:4444" # public
-      - "4445:4445" # admin
+      - "4444:4444"
+      - "4445:4445"
     environment:
-      DSN: postgres://maktaba:maktaba@postgres:5432/ory_hydra?sslmode=disable
+      DSN: ${ORY_HYDRA_DB_URL:-postgres://ory_hydra:ory_hydra_change_in_production@postgres:5432/ory_hydra?sslmode=disable}
       URLS_SELF_ISSUER: ${ORY_HYDRA_PUBLIC_URL:-http://localhost:4444}
       URLS_CONSENT: ${ORY_HYDRA_URLS_CONSENT:-http://localhost:4433/consent}
       URLS_LOGIN: ${ORY_HYDRA_URLS_LOGIN:-http://localhost:4433/login}
@@ -152,7 +199,7 @@ services:
       - "4456:4456"
       - "4455:4455"
     environment:
-      CONFIG_FILE: /etc/config/oathkeeper/oathkeeper.yml
+      CONFIG_FILE: /etc/config/oathkeeper.yml
     volumes:
       - ./configs/oathkeeper:/etc/config/oathkeeper
     depends_on:
@@ -178,7 +225,15 @@ services:
       - "--web.console.libraries=/usr/share/prometheus/console_libraries"
       - "--web.console.templates=/usr/share/prometheus/consoles"
     healthcheck:
-      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy" ]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:9090/-/healthy",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -203,12 +258,21 @@ services:
       prometheus:
         condition: service_healthy
     healthcheck:
-      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health" ]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:3000/api/health",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
       - observability
+      - bayt-alhikmah
 
   loki:
     image: grafana/loki:2.9.4
@@ -236,12 +300,13 @@ services:
     command: -config.file=/etc/tempo/tempo.yml
     networks:
       - observability
+      - bayt-alhikmah
 
   alertmanager:
     image: prom/alertmanager:v0.26.0
     container_name: bayt-alhikmah-alertmanager
     ports:
-      - "9093:9093"
+      - "${ALERTMANAGER_PORT:-9093}:9093"
     volumes:
       - ./configs/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
       - alertmanager_data:/alertmanager
@@ -258,18 +323,26 @@ services:
     ports:
       - "${MAKTABA_PORT:-8080}:8080"
     environment:
-      DATABASE_URL: ${MAKTABA_DB_URL:-postgres://maktaba:maktaba@postgres:5432/maktaba?sslmode=disable}
+      DATABASE_URL: ${MAKTABA_DB_URL}
       PORT: 8080
       KAFKA_BROKERS: redpanda:9092
       OTEL_EXPORTER_ENDPOINT: http://tempo:4317
-      OTEL_SERVICE_NAME: bayt-alhikmah-maktaba
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME_PREFIX:-bayt-alhikmah}-maktaba
     depends_on:
       postgres:
         condition: service_healthy
     networks:
       - bayt-alhikmah
     healthcheck:
-      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health" ]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8080/health",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -285,14 +358,22 @@ services:
       DATABASE_URL: sqlite:///./bahith.db
       KAFKA_BROKERS: redpanda:9092
       OTEL_EXPORTER_ENDPOINT: http://tempo:4317
-      OTEL_SERVICE_NAME: bayt-alhikmah-bahith
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME_PREFIX:-bayt-alhikmah}-bahith
     depends_on:
       redpanda:
         condition: service_healthy
     networks:
       - bayt-alhikmah
     healthcheck:
-      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8003/healthz" ]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8003/healthz",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -305,10 +386,10 @@ services:
     ports:
       - "${MURSHID_PORT:-8004}:8004"
     environment:
-      DATABASE_URL: ${MURSHID_DB_URL:-postgres://murshid:murshid@postgres:5432/murshid?sslmode=disable}
+      DATABASE_URL: ${MURSHID_DB_URL}
       KAFKA_BROKERS: redpanda:9092
       OTEL_EXPORTER_ENDPOINT: http://tempo:4317
-      OTEL_SERVICE_NAME: bayt-alhikmah-murshid
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME_PREFIX:-bayt-alhikmah}-murshid
     depends_on:
       postgres:
         condition: service_healthy
@@ -317,7 +398,15 @@ services:
     networks:
       - bayt-alhikmah
     healthcheck:
-      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8004/healthz" ]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8004/healthz",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5

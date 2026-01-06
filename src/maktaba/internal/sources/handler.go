@@ -1,22 +1,19 @@
 package sources
 
 import (
-	"encoding/json"
-	"log/slog"
 	"net/http"
 	"strconv"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/labstack/echo/v4"
+	"log/slog"
 )
 
-// Handler handles HTTP requests for sources
 type Handler struct {
 	service *Service
 	logger  *slog.Logger
 }
 
-// NewHandler creates a new sources handler
 func NewHandler(service *Service, logger *slog.Logger) *Handler {
 	return &Handler{
 		service: service,
@@ -24,19 +21,6 @@ func NewHandler(service *Service, logger *slog.Logger) *Handler {
 	}
 }
 
-// RegisterRoutes registers the sources routes
-func (h *Handler) RegisterRoutes(r chi.Router) {
-	r.Route("/sources", func(r chi.Router) {
-		r.Post("/", h.Create)
-		r.Get("/", h.List)
-		r.Get("/search", h.Search)
-		r.Get("/{id}", h.GetByID)
-		r.Put("/{id}", h.Update)
-		r.Delete("/{id}", h.Delete)
-	})
-}
-
-// CreateRequest represents the request body for creating a source
 type CreateRequest struct {
 	Title       string   `json:"title"`
 	Subtitle    *string  `json:"subtitle,omitempty"`
@@ -52,7 +36,6 @@ type CreateRequest struct {
 	PublishedAt *string  `json:"published_at,omitempty"`
 }
 
-// UpdateRequest represents the request body for updating a source
 type UpdateRequest struct {
 	Title       *string  `json:"title,omitempty"`
 	Subtitle    *string  `json:"subtitle,omitempty"`
@@ -68,25 +51,32 @@ type UpdateRequest struct {
 	PublishedAt *string  `json:"published_at,omitempty"`
 }
 
-// Create handles POST /sources
-func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) RegisterRoutes(e *echo.Echo) {
+	g := e.Group("/sources")
+	g.POST("", h.Create)
+	g.GET("", h.List)
+	g.GET("/search", h.Search)
+	g.GET("/:id", h.GetByID)
+	g.PUT("/:id", h.Update)
+	g.DELETE("/:id", h.Delete)
+}
+
+func (h *Handler) Create(c echo.Context) error {
 	var req CreateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, "invalid request body", http.StatusBadRequest)
-		return
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 	}
 
 	var authorID *uuid.UUID
 	if req.AuthorID != nil {
 		id, err := uuid.Parse(*req.AuthorID)
 		if err != nil {
-			h.respondError(w, "invalid author_id", http.StatusBadRequest)
-			return
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid author_id"})
 		}
 		authorID = &id
 	}
 
-	source, err := h.service.Create(r.Context(), CreateSourceParams{
+	source, err := h.service.Create(c.Request().Context(), CreateSourceParams{
 		Title:       req.Title,
 		Subtitle:    req.Subtitle,
 		Type:        SourceType(req.Type),
@@ -101,96 +91,82 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil {
-		h.respondError(w, "failed to create source", http.StatusInternalServerError)
-		return
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create source"})
 	}
 
-	h.respondJSON(w, source, http.StatusCreated)
+	return c.JSON(http.StatusCreated, source)
 }
 
-// GetByID handles GET /sources/{id}
-func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
-	idStr := chi.URLParam(r, "id")
+func (h *Handler) GetByID(c echo.Context) error {
+	idStr := c.Param("id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		h.respondError(w, "invalid source ID", http.StatusBadRequest)
-		return
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid source ID"})
 	}
 
-	source, err := h.service.GetByID(r.Context(), id)
+	source, err := h.service.GetByID(c.Request().Context(), id)
 	if err == ErrSourceNotFound {
-		h.respondError(w, "source not found", http.StatusNotFound)
-		return
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "source not found"})
 	}
 	if err != nil {
-		h.respondError(w, "failed to get source", http.StatusInternalServerError)
-		return
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to get source"})
 	}
 
-	h.respondJSON(w, source, http.StatusOK)
+	return c.JSON(http.StatusOK, source)
 }
 
-// List handles GET /sources
-func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	limit, offset := h.parsePagination(r)
-	sourceType := r.URL.Query().Get("type")
+func (h *Handler) List(c echo.Context) error {
+	limit, offset := h.parsePagination(c)
+	sourceType := c.QueryParam("type")
 
 	var sources []*Source
 	var err error
 
 	if sourceType != "" {
-		sources, err = h.service.ListByType(r.Context(), SourceType(sourceType), limit, offset)
+		sources, err = h.service.ListByType(c.Request().Context(), SourceType(sourceType), limit, offset)
 	} else {
-		sources, err = h.service.List(r.Context(), limit, offset)
+		sources, err = h.service.List(c.Request().Context(), limit, offset)
 	}
 
 	if err != nil {
-		h.respondError(w, "failed to list sources", http.StatusInternalServerError)
-		return
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to list sources"})
 	}
 
-	h.respondJSON(w, sources, http.StatusOK)
+	return c.JSON(http.StatusOK, sources)
 }
 
-// Search handles GET /sources/search
-func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query().Get("q")
+func (h *Handler) Search(c echo.Context) error {
+	query := c.QueryParam("q")
 	if query == "" {
-		h.respondError(w, "search query required", http.StatusBadRequest)
-		return
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "search query required"})
 	}
 
-	limit, offset := h.parsePagination(r)
-	sources, err := h.service.Search(r.Context(), query, limit, offset)
+	limit, offset := h.parsePagination(c)
+	sources, err := h.service.Search(c.Request().Context(), query, limit, offset)
 	if err != nil {
-		h.respondError(w, "failed to search sources", http.StatusInternalServerError)
-		return
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to search sources"})
 	}
 
-	h.respondJSON(w, sources, http.StatusOK)
+	return c.JSON(http.StatusOK, sources)
 }
 
-// Update handles PUT /sources/{id}
-func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
-	idStr := chi.URLParam(r, "id")
+func (h *Handler) Update(c echo.Context) error {
+	idStr := c.Param("id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		h.respondError(w, "invalid source ID", http.StatusBadRequest)
-		return
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid source ID"})
 	}
 
 	var req UpdateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, "invalid request body", http.StatusBadRequest)
-		return
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 	}
 
 	var authorID *uuid.UUID
 	if req.AuthorID != nil {
 		aid, err := uuid.Parse(*req.AuthorID)
 		if err != nil {
-			h.respondError(w, "invalid author_id", http.StatusBadRequest)
-			return
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid author_id"})
 		}
 		authorID = &aid
 	}
@@ -201,7 +177,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		sourceType = &st
 	}
 
-	source, err := h.service.Update(r.Context(), id, UpdateSourceParams{
+	source, err := h.service.Update(c.Request().Context(), id, UpdateSourceParams{
 		Title:       req.Title,
 		Subtitle:    req.Subtitle,
 		Type:        sourceType,
@@ -216,59 +192,44 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err == ErrSourceNotFound {
-		h.respondError(w, "source not found", http.StatusNotFound)
-		return
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "source not found"})
 	}
 	if err != nil {
-		h.respondError(w, "failed to update source", http.StatusInternalServerError)
-		return
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to update source"})
 	}
 
-	h.respondJSON(w, source, http.StatusOK)
+	return c.JSON(http.StatusOK, source)
 }
 
-// Delete handles DELETE /sources/{id}
-func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
-	idStr := chi.URLParam(r, "id")
+func (h *Handler) Delete(c echo.Context) error {
+	idStr := c.Param("id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		h.respondError(w, "invalid source ID", http.StatusBadRequest)
-		return
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid source ID"})
 	}
 
-	if err := h.service.Delete(r.Context(), id); err != nil {
-		h.respondError(w, "failed to delete source", http.StatusInternalServerError)
-		return
+	if err := h.service.Delete(c.Request().Context(), id); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to delete source"})
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	return c.NoContent(http.StatusNoContent)
 }
 
-func (h *Handler) parsePagination(r *http.Request) (limit, offset int) {
+func (h *Handler) parsePagination(c echo.Context) (limit, offset int) {
 	limit = 100
 	offset = 0
 
-	if l := r.URL.Query().Get("limit"); l != "" {
+	if l := c.QueryParam("limit"); l != "" {
 		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
 			limit = parsed
 		}
 	}
 
-	if o := r.URL.Query().Get("offset"); o != "" {
+	if o := c.QueryParam("offset"); o != "" {
 		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
 			offset = parsed
 		}
 	}
 
 	return limit, offset
-}
-
-func (h *Handler) respondJSON(w http.ResponseWriter, data interface{}, status int) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
-}
-
-func (h *Handler) respondError(w http.ResponseWriter, message string, status int) {
-	h.respondJSON(w, map[string]string{"error": message}, status)
 }

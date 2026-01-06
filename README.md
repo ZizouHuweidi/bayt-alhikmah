@@ -44,6 +44,7 @@ Bayt al Hikmah is an Islamic knowledge management platform that helps users orga
 - **Loki**: Log aggregation
 - **Tempo**: Distributed tracing
 - **Alertmanager**: Alert management
+- **pgAdmin**: PostgreSQL administration (http://localhost:5050)
 
 ## Getting Started
 
@@ -72,8 +73,11 @@ Bayt al Hikmah is an Islamic knowledge management platform that helps users orga
 - `make test-all` - Run all tests
 - `make lint-all` - Lint all code
 - `make clean` - Remove all containers and volumes
-- `make api` - Open API in browser
+- `make api` - Open Maktaba API in browser
 - `make grafana` - Open Grafana dashboard
+- `make prometheus` - Open Prometheus
+- `make meilisearch` - Open Meilisearch
+- `make pgadmin` - Open pgAdmin
 - `make help` - See all available commands
 
 ### Local Development

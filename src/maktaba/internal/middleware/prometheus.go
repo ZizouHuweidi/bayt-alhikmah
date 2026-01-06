@@ -1,9 +1,10 @@
 package middleware
 
 import (
-	"net/http"
+	"strconv"
 	"time"
 
+	"github.com/labstack/echo/v4"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"log/slog"
@@ -28,54 +29,36 @@ var (
 	)
 )
 
-func PrometheusMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func PrometheusMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
 		start := time.Now()
-		ww := &responseWriter{ResponseWriter: w}
-
-		next.ServeHTTP(ww, r)
-
+		err := next(c)
 		duration := time.Since(start).Seconds()
 
-		httpRequestsTotal.WithLabelValues(r.Method, r.URL.Path, http.StatusText(ww.Status())).Inc()
-		httpRequestDuration.WithLabelValues(r.Method, r.URL.Path).Observe(duration)
-	})
-}
+		status := strconv.Itoa(c.Response().Status)
+		httpRequestsTotal.WithLabelValues(c.Request().Method, c.Path(), status).Inc()
+		httpRequestDuration.WithLabelValues(c.Request().Method, c.Path()).Observe(duration)
 
-type responseWriter struct {
-	http.ResponseWriter
-	statusCode int
-}
-
-func (rw *responseWriter) WriteHeader(code int) {
-	rw.statusCode = code
-	rw.ResponseWriter.WriteHeader(code)
-}
-
-func (rw *responseWriter) Status() int {
-	if rw.statusCode == 0 {
-		return http.StatusOK
+		return err
 	}
-	return rw.statusCode
 }
 
-func LoggingMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func LoggingMiddleware(logger *slog.Logger) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
 			start := time.Now()
-			ww := &responseWriter{ResponseWriter: w}
-
-			next.ServeHTTP(ww, r)
-
+			err := next(c)
 			duration := time.Since(start)
 
 			logger.Info("request",
-				"method", r.Method,
-				"path", r.URL.Path,
-				"status", ww.Status(),
+				"method", c.Request().Method,
+				"path", c.Request().URL.Path,
+				"status", c.Response().Status,
 				"duration", duration,
-				"ip", r.RemoteAddr,
+				"ip", c.RealIP(),
 			)
-		})
+
+			return err
+		}
 	}
 }

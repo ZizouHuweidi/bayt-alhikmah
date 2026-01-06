@@ -9,14 +9,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-	chiMiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/labstack/echo/v4"
+	echomiddleware "github.com/labstack/echo/v4/middleware"
 	"github.com/zizouhuweidi/maktaba/internal/config"
 	"github.com/zizouhuweidi/maktaba/internal/db"
-	"github.com/zizouhuweidi/maktaba/internal/middleware"
+	appmiddleware "github.com/zizouhuweidi/maktaba/internal/middleware"
 	"github.com/zizouhuweidi/maktaba/internal/notes"
-	"github.com/zizouhuweidi/maktaba/internal/pkg"
 	"github.com/zizouhuweidi/maktaba/internal/sources"
+	"github.com/zizouhuweidi/maktaba/pkg"
 )
 
 func main() {
@@ -26,10 +26,8 @@ func main() {
 
 	logger.Info("starting maktaba service")
 
-	// Load configuration
 	cfg := config.Load()
 
-	// Initialize database
 	database, err := db.NewDB(
 		cfg.Database.URL,
 		cfg.Database.MaxOpenConns,
@@ -44,58 +42,49 @@ func main() {
 
 	logger.Info("connected to database")
 
-	// Initialize repositories
 	sourceRepo := sources.NewPostgresRepository(database)
 	noteRepo := notes.NewPostgresRepository(database)
 
-	// Initialize services
 	sourceSvc := sources.NewService(sourceRepo, logger)
 	noteSvc := notes.NewService(noteRepo, logger)
 
-	// Initialize handlers
 	sourceHndlr := sources.NewHandler(sourceSvc, logger)
 	noteHndlr := notes.NewHandler(noteSvc, logger)
 
-	// Setup router
-	r := chi.NewRouter()
+	e := echo.New()
 
-	// Standard middleware
-	r.Use(chiMiddleware.Recoverer)
-	r.Use(chiMiddleware.RequestID)
-	r.Use(chiMiddleware.RealIP)
-	r.Use(chiMiddleware.Timeout(60 * time.Second))
-	r.Use(chiMiddleware.SetHeader("Content-Type", "application/json"))
+	e.Use(echomiddleware.Recover())
+	e.Use(echomiddleware.RequestID())
+	e.Use(echomiddleware.CORS())
+	e.Use(echomiddleware.Gzip())
+	e.Use(echomiddleware.TimeoutWithConfig(echomiddleware.TimeoutConfig{
+		Timeout: 60 * time.Second,
+	}))
 
-	// Custom middleware
-	r.Use(middleware.LoggingMiddleware(logger))
-	r.Use(middleware.PrometheusMiddleware)
+	e.Use(appmiddleware.LoggingMiddleware(logger))
+	e.Use(appmiddleware.PrometheusMiddleware)
 
-	// Health and metrics
-	r.Get("/health", pkg.HealthCheckHandler)
-	r.Get("/metrics", pkg.MetricsHandler)
+	e.GET("/health", pkg.HealthCheckHandler)
+	e.GET("/metrics", pkg.MetricsHandler)
 
-	// Register domain routes
-	sourceHndlr.RegisterRoutes(r)
-	noteHndlr.RegisterRoutes(r)
+	sourceHndlr.RegisterRoutes(e)
+	noteHndlr.RegisterRoutes(e)
 
-	// Server configuration
-	srv := &http.Server{
+	s := http.Server{
 		Addr:         ":" + cfg.Server.Port,
-		Handler:      r,
+		Handler:      e,
 		ReadTimeout:  cfg.Server.ReadTimeout,
 		WriteTimeout: cfg.Server.WriteTimeout,
 	}
 
-	// Start server
 	go func() {
 		logger.Info("server starting", "port", cfg.Server.Port)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := e.StartServer(&s); err != nil && err != http.ErrServerClosed {
 			logger.Error("server failed", "error", err)
 			os.Exit(1)
 		}
 	}()
 
-	// Graceful shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
@@ -105,7 +94,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
+	if err := e.Shutdown(ctx); err != nil {
 		logger.Error("server forced to shutdown", "error", err)
 		os.Exit(1)
 	}

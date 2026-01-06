@@ -104,6 +104,10 @@ meilisearch:  ## Open Meilisearch
 	@echo "Opening Meilisearch at http://localhost:7700"
 	@xdg-open http://localhost:7700 || open http://localhost:7700 || echo "Please open http://localhost:7700 in your browser"
 
+pgadmin:  ## Open pgAdmin
+	@echo "Opening pgAdmin at http://localhost:5050"
+	@xdg-open http://localhost:5050 || open http://localhost:5050 || echo "Please open http://localhost:5050 in your browser"
+
 api:  ## Open Maktaba API
 	@echo "Opening Maktaba API at http://localhost:8080"
 	@xdg-open http://localhost:8080 || open http://localhost:8080 || echo "Please open http://localhost:8080 in your browser"
