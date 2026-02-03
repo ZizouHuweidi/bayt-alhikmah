@@ -11,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	echomiddleware "github.com/labstack/echo/v4/middleware"
+	"github.com/zizouhuweidi/maktaba/internal/auth"
 	"github.com/zizouhuweidi/maktaba/internal/config"
 	"github.com/zizouhuweidi/maktaba/internal/db"
 	appmiddleware "github.com/zizouhuweidi/maktaba/internal/middleware"
@@ -42,6 +43,10 @@ func main() {
 
 	logger.Info("connected to database")
 
+	// Initialize Ory Kratos client
+	oryClient := auth.NewClient(cfg.Ory.PublicURL, cfg.Ory.AdminURL)
+	logger.Info("initialized Ory Kratos client", "public_url", cfg.Ory.PublicURL)
+
 	sourceRepo := sources.NewPostgresRepository(database)
 	noteRepo := notes.NewPostgresRepository(database)
 
@@ -67,8 +72,15 @@ func main() {
 	e.GET("/health", pkg.HealthCheckHandler)
 	e.GET("/metrics", pkg.MetricsHandler)
 
-	sourceHndlr.RegisterRoutes(e)
-	noteHndlr.RegisterRoutes(e)
+	// Public routes (no auth required)
+	sourceHndlr.RegisterPublicRoutes(e)
+	noteHndlr.RegisterPublicRoutes(e)
+
+	// Protected routes (auth required)
+	protected := e.Group("/api")
+	protected.Use(oryClient.Middleware())
+	sourceHndlr.RegisterProtectedRoutes(protected)
+	noteHndlr.RegisterProtectedRoutes(protected)
 
 	s := http.Server{
 		Addr:         ":" + cfg.Server.Port,

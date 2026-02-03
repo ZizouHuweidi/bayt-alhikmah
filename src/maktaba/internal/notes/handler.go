@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
+	"github.com/zizouhuweidi/maktaba/internal/auth"
 )
 
 type Handler struct {
@@ -22,7 +23,6 @@ func NewHandler(service *Service, logger *slog.Logger) *Handler {
 }
 
 type CreateRequest struct {
-	UserID      string   `json:"user_id"`
 	SourceID    *string  `json:"source_id,omitempty"`
 	Content     string   `json:"content"`
 	ContentType string   `json:"content_type"`
@@ -39,11 +39,17 @@ type UpdateRequest struct {
 	Tags        []string `json:"tags,omitempty"`
 }
 
-func (h *Handler) RegisterRoutes(e *echo.Echo) {
+// RegisterPublicRoutes registers public routes (no auth required)
+func (h *Handler) RegisterPublicRoutes(e *echo.Echo) {
 	g := e.Group("/notes")
-	g.POST("", h.Create)
 	g.GET("", h.List)
 	g.GET("/:id", h.GetByID)
+}
+
+// RegisterProtectedRoutes registers protected routes (auth required)
+func (h *Handler) RegisterProtectedRoutes(e *echo.Group) {
+	g := e.Group("/notes")
+	g.POST("", h.Create)
 	g.PUT("/:id", h.Update)
 	g.DELETE("/:id", h.Delete)
 }
@@ -54,7 +60,13 @@ func (h *Handler) Create(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 	}
 
-	userID, err := uuid.Parse(req.UserID)
+	// Get user ID from auth context
+	userIDStr := auth.GetUserID(c)
+	if userIDStr == "" {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+	}
+
+	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid user_id"})
 	}

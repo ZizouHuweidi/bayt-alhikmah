@@ -20,17 +20,14 @@ urls:
 
 secrets:
   system:
-    - PLEASE_CHANGE_ME_SECRET_3
+    - this_is_a_32_character_system_secr
   cookie:
-    - PLEASE_CHANGE_ME_SECRET_4
+    - sixteen_char_sec
 
 oidc:
   subject_identifiers:
     supported_types:
-      - pairwise
       - public
-    pairwise:
-      salt: PLEASE_CHANGE_ME_SALT
 
 log:
   level: debug

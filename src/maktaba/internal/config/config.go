@@ -12,6 +12,7 @@ type Config struct {
 	Database DatabaseConfig
 	Kafka    KafkaConfig
 	OTEL     OTELConfig
+	Ory      OryConfig
 }
 
 type ServerConfig struct {
@@ -36,6 +37,11 @@ type OTELConfig struct {
 	ServiceName string
 }
 
+type OryConfig struct {
+	PublicURL string
+	AdminURL  string
+}
+
 // Load reads configuration from environment variables
 func Load() *Config {
 	return &Config{
@@ -56,6 +62,10 @@ func Load() *Config {
 		OTEL: OTELConfig{
 			Endpoint:    getEnv("OTEL_EXPORTER_ENDPOINT", "http://localhost:4317"),
 			ServiceName: getEnv("OTEL_SERVICE_NAME", "maktaba"),
+		},
+		Ory: OryConfig{
+			PublicURL: getEnv("ORY_KRATOS_PUBLIC_URL", "http://localhost:4433"),
+			AdminURL:  getEnv("ORY_KRATOS_ADMIN_URL", "http://localhost:4434"),
 		},
 	}
 }

@@ -51,12 +51,18 @@ type UpdateRequest struct {
 	PublishedAt *string  `json:"published_at,omitempty"`
 }
 
-func (h *Handler) RegisterRoutes(e *echo.Echo) {
+// RegisterPublicRoutes registers public routes (no auth required)
+func (h *Handler) RegisterPublicRoutes(e *echo.Echo) {
 	g := e.Group("/sources")
-	g.POST("", h.Create)
 	g.GET("", h.List)
 	g.GET("/search", h.Search)
 	g.GET("/:id", h.GetByID)
+}
+
+// RegisterProtectedRoutes registers protected routes (auth required)
+func (h *Handler) RegisterProtectedRoutes(e *echo.Group) {
+	g := e.Group("/sources")
+	g.POST("", h.Create)
 	g.PUT("/:id", h.Update)
 	g.DELETE("/:id", h.Delete)
 }

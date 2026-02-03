@@ -1,17 +1,15 @@
 {
-  "projectName": "wajiht-alhikmah",
+  "projectName": "bayt-alhikmah",
   "mode": "file-router",
   "typescript": true,
-  "tailwind": true,
   "packageManager": "bun",
+  "tailwind": true,
   "addOnOptions": {},
   "git": true,
   "version": 1,
   "framework": "react-cra",
   "chosenAddOns": [
-    "eslint",
-    "nitro",
-    "start",
-    "shadcn"
+    "biome",
+    "start"
   ]
 }

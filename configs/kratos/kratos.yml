@@ -20,7 +20,7 @@ serve:
         - Authorization
         - Cookie
         - Content-Type
-      expose_headers:
+      exposed_headers:
         - Content-Type
       allow_credentials: true
   admin:
@@ -74,9 +74,9 @@ log:
 
 secrets:
   cookie:
-    - PLEASE_CHANGE_ME_SECRET_1
+    - CHANGE_ME_PLEASE_32_CHARS_LONG
   cipher:
-    - PLEASE_CHANGE_ME_SECRET_2
+    - CHANGE_ME_TOO_32_CHARS_LONG!!
 
 identity:
   default_schema_id: default
