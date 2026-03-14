@@ -15,8 +15,7 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql
-      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
-      - ./src/maktaba/migrations:/migrations
+      - ./migrations:/migrations
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 5s
@@ -49,66 +48,6 @@ services:
       - bayt-alhikmah
     restart: unless-stopped
 
-  # redis:
-  #   image: redis:8-alpine
-  #   container_name: bayt-alhikmah-redis
-  #   ports:
-  #     - "${REDIS_PORT:-6379}:6379"
-  #   volumes:
-  #     - redis_data:/data
-  #   healthcheck:
-  #     test: ["CMD", "redis-cli", "ping"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 5
-  #   networks:
-  #     - bayt-alhikmah
-  #   restart: unless-stopped
-
-  # ============================================================================
-  # Message Broker & Search
-  # ============================================================================
-  # redpanda:
-  #   image: docker.redpanda.com/redpandadata/redpanda:v25.3.4
-  #   container_name: bayt-alhikmah-redpanda
-  #   ports:
-  #     - "${REDPANDA_KAFKA_PORT:-9092}:9092"
-  #     - "${REDPANDA_ADMIN_PORT:-9644}:9644"
-  #     - "9093:9093"
-  #   command:
-  #     - redpanda start
-  #     - --smp=1
-  #     - --memory=1G
-  #     - --overprovisioned
-  #     - --node-id=0
-  #     - --kafka-addr 0.0.0.0:9092
-  #     - --advertise-kafka-addr redpanda:9092
-  #     - --pandaproxy-addr 0.0.0.0:8082
-  #     - --advertise-pandaproxy-addr redpanda:8082
-  #   volumes:
-  #     - redpanda_data:/var/lib/redpanda/data
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "rpk cluster health"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 5
-  #   networks:
-  #     - bayt-alhikmah
-  #   restart: unless-stopped
-
-  # redpanda-console:
-  #   container_name: bayt-alhikmah-redpanda-console
-  #   image: docker.redpanda.com/redpandadata/console:v3.4.0
-  #   ports:
-  #     - "8080:8080"
-  #   environment:
-  #     KAFKA_BROKERS: redpanda:9092
-  #   depends_on:
-  #     - redpanda
-  #   networks:
-  #     - bayt-alhikmah
-  #   restart: unless-stopped
-
   # meilisearch:
   #   image: getmeili/meilisearch:v1.5
   #   container_name: bayt-alhikmah-meilisearch
@@ -137,116 +76,21 @@ services:
   #   restart: unless-stopped
 
   # ============================================================================
-  # ORY Authentication Stack
-  # ============================================================================
-  ory-kratos-migrate:
-    image: oryd/kratos:v1.0.0
-    container_name: bayt-alhikmah-kratos-migrate
-    environment:
-      DSN: ${ORY_KRATOS_DB_URL:-postgres://ory_kratos:ory_kratos@postgres:5432/ory_kratos?sslmode=disable}
-    volumes:
-      - ./configs/kratos:/etc/config/kratos:Z
-    command: -c /etc/config/kratos/kratos.yml migrate sql -e --yes
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - bayt-alhikmah
-
-  ory-kratos:
-    image: oryd/kratos:v1.0.0
-    container_name: bayt-alhikmah-kratos
-    ports:
-      - "4433:4433"
-      - "4434:4434"
-    environment:
-      DSN: ${ORY_KRATOS_DB_URL:-postgres://ory_kratos:ory_kratos@postgres:5432/ory_kratos?sslmode=disable}
-      SECRETS_COOKIE: ${ORY_KRATOS_SECRETS_COOKIE:-change_me_in_production_32_chars!!}
-      SECRETS_CIPHER: ${ORY_KRATOS_SECRETS_CIPHER:-change_me_in_production_32_chars_long!!}
-    volumes:
-      - ./configs/kratos:/etc/config/kratos:Z
-    command: serve -c /etc/config/kratos/kratos.yml --dev
-    depends_on:
-      ory-kratos-migrate:
-        condition: service_completed_successfully
-    networks:
-      - bayt-alhikmah
-    restart: unless-stopped
-
-  ory-hydra-migrate:
-    image: oryd/hydra:v2.0.0
-    container_name: bayt-alhikmah-hydra-migrate
-    environment:
-      DSN: ${ORY_HYDRA_DB_URL:-postgres://ory_hydra:ory_hydra@postgres:5432/ory_hydra?sslmode=disable}
-    command: migrate sql -e --yes
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - bayt-alhikmah
-
-  ory-hydra:
-    image: oryd/hydra:v2.0.0
-    container_name: bayt-alhikmah-hydra
-    ports:
-      - "4444:4444"
-      - "4445:4445"
-    environment:
-      DSN: ${ORY_HYDRA_DB_URL:-postgres://ory_hydra:ory_hydra@postgres:5432/ory_hydra?sslmode=disable}
-      URLS_SELF_ISSUER: ${ORY_HYDRA_PUBLIC_URL:-http://localhost:4444}
-      URLS_CONSENT: ${ORY_HYDRA_URLS_CONSENT:-http://localhost:4433/consent}
-      URLS_LOGIN: ${ORY_HYDRA_URLS_LOGIN:-http://localhost:4433/login}
-      URLS_ERROR: ${ORY_HYDRA_URLS_ERROR:-http://localhost:4433/error}
-      SECRETS_SYSTEM: ${ORY_HYDRA_SECRETS_SYSTEM:-change_me_in_production_16}
-      SECRETS_COOKIE: ${ORY_HYDRA_SECRETS_COOKIE:-change_me_in_production_16}
-    depends_on:
-      ory-hydra-migrate:
-        condition: service_completed_successfully
-    networks:
-      - bayt-alhikmah
-    command: serve all --dev
-    restart: unless-stopped
-
-  ory-oathkeeper:
-    image: oryd/oathkeeper:v0.40.6
-    container_name: bayt-alhikmah-oathkeeper
-    ports:
-      - "4456:4456"
-      - "4455:4455"
-    environment:
-      CONFIG_FILE: /etc/config/oathkeeper.yml
-    volumes:
-      - ./configs/oathkeeper:/etc/config/oathkeeper
-    depends_on:
-      ory-kratos:
-        condition: service_started
-      ory-hydra:
-        condition: service_started
-    networks:
-      - bayt-alhikmah
-    restart: unless-stopped
-
-  # ============================================================================
   # Application Services
   # ============================================================================
   maktaba:
     build:
-      context: ./src/maktaba
+      context: .
       dockerfile: Dockerfile
-    container_name: bayt-alhikmah-maktaba
+    container_name: bayt-alhikmah
     ports:
       - "${MAKTABA_PORT:-8080}:8080"
     environment:
       DATABASE_URL: ${MAKTABA_DB_URL:-postgres://maktaba:maktaba@postgres:5432/maktaba?sslmode=disable}
       PORT: 8080
-      KAFKA_BROKERS: redpanda:9092
-      ORY_KRATOS_PUBLIC_URL: ${ORY_KRATOS_PUBLIC_URL:-http://kratos:4433}
-      ORY_KRATOS_ADMIN_URL: ${ORY_KRATOS_ADMIN_URL:-http://kratos:4434}
     depends_on:
       postgres:
         condition: service_healthy
-      ory-kratos:
-        condition: service_started
     networks:
       - bayt-alhikmah
     healthcheck:
@@ -270,6 +114,4 @@ networks:
 
 volumes:
   postgres_data:
-  # redis_data:
-  # redpanda_data:
   # meilisearch_data:

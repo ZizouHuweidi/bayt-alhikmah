@@ -1,106 +1,119 @@
 import {
-	createContext,
-	useContext,
-	useState,
-	useEffect,
-	useCallback,
-	type ReactNode,
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  type ReactNode,
 } from 'react'
-import type { Identity, Session } from '@ory/client'
-import {
-	getSession,
-	getIdentity,
-	isAuthenticated as checkIsAuthenticated,
-	logout as kratosLogout,
-	getUserTraits,
-} from '@/lib/auth/kratos'
+import { Configuration, FrontendApi } from '@ory/client-fetch'
+import type { Session, Identity } from '@ory/client-fetch'
+
+const getOryClient = () => {
+  console.log('Creating Ory client with URL:', import.meta.env.VITE_ORY_SDK_URL)
+  const config = new Configuration({
+    basePath: import.meta.env.VITE_ORY_SDK_URL || 'http://localhost:4000',
+    baseOptions: {
+      withCredentials: true,
+    },
+  })
+  return new FrontendApi(config)
+}
 
 interface AuthContextType {
-	isAuthenticated: boolean
-	isLoading: boolean
-	session: Session | null
-	identity: Identity | null
-	user: {
-		id: string
-		email?: string
-		firstName?: string
-		lastName?: string
-	}
-	logout: () => Promise<void>
-	refreshSession: () => Promise<void>
+  isAuthenticated: boolean
+  isLoading: boolean
+  session: Session | null
+  identity: Identity | null
+  user: {
+    id: string
+    email?: string
+    firstName?: string
+    lastName?: string
+  }
+  logout: () => Promise<void>
+  refreshSession: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 interface AuthProviderProps {
-	children: ReactNode
+  children: ReactNode
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
-	const [isAuthenticated, setIsAuthenticated] = useState(false)
-	const [isLoading, setIsLoading] = useState(true)
-	const [session, setSession] = useState<Session | null>(null)
-	const [identity, setIdentity] = useState<Identity | null>(null)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const [session, setSession] = useState<Session | null>(null)
+  const [identity, setIdentity] = useState<Identity | null>(null)
 
-	const refreshSession = useCallback(async () => {
-		try {
-			const session = await getSession()
-			const authenticated = await checkIsAuthenticated()
+  const refreshSession = useCallback(async () => {
+    const ory = getOryClient()
+    try {
+      const { data } = await ory.toSession()
+      setSession(data)
+      setIsAuthenticated(data.active === true)
+      setIdentity(data.identity)
+    } catch {
+      setIsAuthenticated(false)
+      setSession(null)
+      setIdentity(null)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
 
-			setSession(session)
-			setIsAuthenticated(authenticated)
+  const logout = useCallback(async () => {
+    const ory = getOryClient()
+    try {
+      const { data: logoutFlow } = await ory.createBrowserLogoutFlow()
 
-			if (session?.identity) {
-				setIdentity(session.identity)
-			} else {
-				const id = await getIdentity()
-				setIdentity(id)
-			}
-		} catch (error) {
-			console.error('Failed to refresh session:', error)
-			setIsAuthenticated(false)
-			setSession(null)
-			setIdentity(null)
-		} finally {
-			setIsLoading(false)
-		}
-	}, [])
+      if (logoutFlow.logout_url) {
+        window.location.href = logoutFlow.logout_url
+      }
+    } catch (error) {
+      console.error('Logout error:', error)
+    } finally {
+      setIsAuthenticated(false)
+      setSession(null)
+      setIdentity(null)
+    }
+  }, [])
 
-	const logout = useCallback(async () => {
-		const success = await kratosLogout()
-		if (success) {
-			setIsAuthenticated(false)
-			setSession(null)
-			setIdentity(null)
-		}
-	}, [])
+  useEffect(() => {
+    refreshSession()
+  }, [refreshSession])
 
-	useEffect(() => {
-		refreshSession()
-	}, [refreshSession])
+  const traits = identity?.traits as
+    | { email?: string; name?: { first?: string; last?: string } }
+    | undefined
 
-	const user = {
-		id: identity?.id || '',
-		...getUserTraits(identity),
-	}
+  const user = {
+    id: identity?.id || '',
+    email: traits?.email,
+    firstName: traits?.name?.first,
+    lastName: traits?.name?.last,
+  }
 
-	const value: AuthContextType = {
-		isAuthenticated,
-		isLoading,
-		session,
-		identity,
-		user,
-		logout,
-		refreshSession,
-	}
+  const value: AuthContextType = {
+    isAuthenticated,
+    isLoading,
+    session,
+    identity,
+    user,
+    logout,
+    refreshSession,
+  }
 
-	return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
 export function useAuth(): AuthContextType {
-	const context = useContext(AuthContext)
-	if (context === undefined) {
-		throw new Error('useAuth must be used within an AuthProvider')
-	}
-	return context
+  const context = useContext(AuthContext)
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider')
+  }
+  return context
 }
+
+export const ory = getOryClient()

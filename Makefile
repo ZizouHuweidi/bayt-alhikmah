@@ -144,10 +144,9 @@ fmt-all: fmt-maktaba fmt-bahith fmt-murshid  ## Format all code
 # Database & Migrations
 # ============================================================================
 
-migrate: migrate-maktaba  ## Run all database migrations
 
-migrate-maktaba:  ## Run maktaba database migrations inside container
-	@echo "$(BLUE)Running maktaba migrations...$(NC)"
+migrate:  ## Run maktaba database migrations inside container
+	@echo "$(BLUE)Running migrations...$(NC)"
 	@docker-compose exec -T postgres psql -U postgres -d maktaba -f /migrations/000001_initial.up.sql 2>/dev/null || \
 	(docker-compose exec postgres psql -U postgres -c "CREATE DATABASE maktaba;" && \
 	 docker-compose exec -T postgres psql -U postgres -d maktaba -f /migrations/000001_initial.up.sql)
@@ -264,7 +263,6 @@ dev: deps up  ## Full development setup (install deps, start services, run migra
 	@echo "$(BLUE)Services:$(NC)"
 	@echo "  Frontend:   http://localhost:3000"
 	@echo "  Maktaba:    http://localhost:8080"
-	@echo "  Kratos:     http://localhost:4433"
 	@echo "  PostgreSQL: localhost:5432"
 	@echo "  pgAdmin:    http://localhost:5050"
 	@echo ""

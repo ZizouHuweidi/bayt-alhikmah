@@ -10,7 +10,6 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Loader2, Library, Book, Bookmark, Settings, LogOut } from 'lucide-react'
-import { toast } from 'sonner'
 
 export const Route = createFileRoute('/dashboard')({
   component: DashboardPage,
@@ -28,14 +27,13 @@ function DashboardPage() {
 
   const handleLogout = async () => {
     await logout()
-    toast.success('Logged out successfully')
     navigate({ to: '/' })
   }
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-50">
-        <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+        <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
       </div>
     )
   }
@@ -46,37 +44,35 @@ function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Header */}
-      <header className="bg-white border-b border-slate-200">
-        <div className="max-w-6xl px-4 mx-auto sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-emerald-600">
-                <Library className="w-5 h-5 text-white" />
-              </div>
-              <span className="text-xl font-bold text-slate-900">Bayt al Hikmah</span>
+      <header className="border-b border-slate-200 bg-white">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center gap-3">
+            <div className="rounded-lg bg-emerald-600 p-2">
+              <Library className="h-5 w-5 text-white" />
             </div>
+            <span className="text-xl font-bold text-slate-900">
+              Bayt al Hikmah
+            </span>
+          </div>
 
-            <div className="flex items-center gap-4">
-              <span className="text-sm text-slate-600">
-                Welcome, {user.firstName || user.email}
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleLogout}
-                className="text-slate-600 hover:text-red-600"
-              >
-                <LogOut className="w-4 h-4 mr-2" />
-                Logout
-              </Button>
-            </div>
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-slate-600">
+              Welcome, {user.firstName || user.email}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleLogout}
+              className="text-slate-600 hover:text-red-600"
+            >
+              <LogOut className="mr-2 h-4 w-4" />
+              Logout
+            </Button>
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="max-w-6xl px-4 py-8 mx-auto sm:px-6 lg:px-8">
+      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-slate-900">Dashboard</h1>
           <p className="mt-2 text-slate-600">
@@ -84,12 +80,11 @@ function DashboardPage() {
           </p>
         </div>
 
-        {/* Quick Actions Grid */}
-        <div className="grid grid-cols-1 gap-6 mb-8 md:grid-cols-2 lg:grid-cols-3">
+        <div className="mb-8 grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Book className="w-5 h-5 text-emerald-600" />
+                <Book className="h-5 w-5 text-emerald-600" />
                 Knowledge Sources
               </CardTitle>
               <CardDescription>
@@ -106,7 +101,7 @@ function DashboardPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Bookmark className="w-5 h-5 text-emerald-600" />
+                <Bookmark className="h-5 w-5 text-emerald-600" />
                 My Notes
               </CardTitle>
               <CardDescription>
@@ -123,7 +118,7 @@ function DashboardPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Settings className="w-5 h-5 text-emerald-600" />
+                <Settings className="h-5 w-5 text-emerald-600" />
                 Settings
               </CardTitle>
               <CardDescription>
@@ -131,14 +126,15 @@ function DashboardPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Button variant="outline" className="w-full">
-                Open Settings
-              </Button>
+              <Link to="/settings">
+                <Button variant="outline" className="w-full">
+                  Open Settings
+                </Button>
+              </Link>
             </CardContent>
           </Card>
         </div>
 
-        {/* Recent Activity Placeholder */}
         <Card>
           <CardHeader>
             <CardTitle>Recent Activity</CardTitle>
@@ -151,11 +147,6 @@ function DashboardPage() {
               <p className="text-slate-500">
                 No activity yet. Start by adding your first knowledge source!
               </p>
-              <Link to="/sources">
-                <Button className="mt-4 bg-emerald-600 hover:bg-emerald-700">
-                  Browse Sources
-                </Button>
-              </Link>
             </div>
           </CardContent>
         </Card>
