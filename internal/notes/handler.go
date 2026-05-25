@@ -1,12 +1,13 @@
 package notes
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
-	"strconv"
 
-	"github.com/google/uuid"
-	"github.com/labstack/echo/v4"
+	"github.com/gofrs/uuid/v5"
+	"github.com/zizouhuweidi/maktaba/internal/auth"
+	"github.com/zizouhuweidi/maktaba/internal/httpx"
 )
 
 type Handler struct {
@@ -15,10 +16,7 @@ type Handler struct {
 }
 
 func NewHandler(service *Service, logger *slog.Logger) *Handler {
-	return &Handler{
-		service: service,
-		logger:  logger,
-	}
+	return &Handler{service: service, logger: logger}
 }
 
 type CreateRequest struct {
@@ -38,50 +36,36 @@ type UpdateRequest struct {
 	Tags        []string `json:"tags,omitempty"`
 }
 
-// RegisterPublicRoutes registers public routes (no auth required)
-func (h *Handler) RegisterPublicRoutes(e *echo.Echo) {
-	g := e.Group("/notes")
-	g.GET("", h.List)
-	g.GET("/:id", h.GetByID)
+func (h *Handler) RegisterPublicRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /notes", h.List)
+	mux.HandleFunc("GET /notes/{id}", h.GetByID)
 }
 
-// RegisterProtectedRoutes registers protected routes (auth required)
-func (h *Handler) RegisterProtectedRoutes(e *echo.Group) {
-	g := e.Group("/notes")
-	g.POST("", h.Create)
-	g.PUT("/:id", h.Update)
-	g.DELETE("/:id", h.Delete)
+func (h *Handler) RegisterProtectedRoutes(mux *http.ServeMux, middleware func(http.Handler) http.Handler) {
+	mux.Handle("POST /api/notes", middleware(http.HandlerFunc(h.Create)))
+	mux.Handle("PUT /api/notes/{id}", middleware(http.HandlerFunc(h.Update)))
+	mux.Handle("DELETE /api/notes/{id}", middleware(http.HandlerFunc(h.Delete)))
 }
 
-func (h *Handler) Create(c echo.Context) error {
+func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
 	var req CreateRequest
-	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+	if err := httpx.ReadJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
+		return
 	}
 
-	// TODO: Get user ID from Ory session when backend auth is implemented
-	// For now, we'll use a default user ID or require it in the request
-	userIDStr := c.Request().Header.Get("X-User-ID")
-	if userIDStr == "" {
-		// Allow creating notes without user ID for now (will be protected later)
-		userIDStr = "00000000-0000-0000-0000-000000000000"
+	sourceID, ok := parseOptionalUUID(w, req.SourceID, "source_id")
+	if !ok {
+		return
 	}
 
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid user_id"})
-	}
-
-	var sourceID *uuid.UUID
-	if req.SourceID != nil {
-		id, err := uuid.Parse(*req.SourceID)
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid source_id"})
-		}
-		sourceID = &id
-	}
-
-	note, err := h.service.Create(c.Request().Context(), CreateNoteParams{
+	note, err := h.service.Create(r.Context(), CreateNoteParams{
 		UserID:      userID,
 		SourceID:    sourceID,
 		Content:     req.Content,
@@ -90,85 +74,113 @@ func (h *Handler) Create(c echo.Context) error {
 		Annotations: req.Annotations,
 		Tags:        req.Tags,
 	})
+	if errors.Is(err, ErrInvalidNote) {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid note")
+		return
+	}
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create note"})
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to create note")
+		return
 	}
 
-	return c.JSON(http.StatusCreated, note)
+	httpx.WriteJSON(w, http.StatusCreated, note)
 }
 
-func (h *Handler) GetByID(c echo.Context) error {
-	idStr := c.Param("id")
-	id, err := uuid.Parse(idStr)
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid note ID"})
+func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
+	id, ok := parsePathUUID(w, r, "id", "note ID")
+	if !ok {
+		return
 	}
 
-	note, err := h.service.GetByID(c.Request().Context(), id)
-	if err == ErrNoteNotFound {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "note not found"})
+	note, err := h.service.GetByID(r.Context(), id)
+	if errors.Is(err, ErrNoteNotFound) {
+		httpx.WriteError(w, http.StatusNotFound, "note not found")
+		return
 	}
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to get note"})
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to get note")
+		return
+	}
+	if !note.IsPublic {
+		httpx.WriteError(w, http.StatusForbidden, "note is private")
+		return
 	}
 
-	return c.JSON(http.StatusOK, note)
+	httpx.WriteJSON(w, http.StatusOK, note)
 }
 
-func (h *Handler) List(c echo.Context) error {
-	limit, offset := h.parsePagination(c)
-	userIDStr := c.QueryParam("user_id")
-	sourceIDStr := c.QueryParam("source_id")
-	publicOnly := c.QueryParam("public") == "true"
+func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
+	limit, offset := httpx.Pagination(r)
+	userIDStr := r.URL.Query().Get("user_id")
+	sourceIDStr := r.URL.Query().Get("source_id")
+	publicOnly := r.URL.Query().Get("public") == "true"
 
-	var notes []*Note
+	var result []*Note
 	var err error
-
 	if userIDStr != "" {
-		userID, err := uuid.Parse(userIDStr)
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid user_id"})
+		userID, parseErr := uuid.FromString(userIDStr)
+		if parseErr != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "invalid user_id")
+			return
 		}
-		notes, err = h.service.ListByUser(c.Request().Context(), userID, limit, offset)
-		if err != nil {
-			return err
-		}
-
+		result, err = h.service.ListByUser(r.Context(), userID, limit, offset)
 	} else if sourceIDStr != "" {
-		sourceID, err := uuid.Parse(sourceIDStr)
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid source_id"})
+		sourceID, parseErr := uuid.FromString(sourceIDStr)
+		if parseErr != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "invalid source_id")
+			return
 		}
-		notes, err = h.service.ListBySource(c.Request().Context(), sourceID, limit, offset)
-		if err != nil {
-			return err
-		}
+		result, err = h.service.ListBySource(r.Context(), sourceID, limit, offset)
 	} else if publicOnly {
-		notes, err = h.service.ListPublic(c.Request().Context(), limit, offset)
+		result, err = h.service.ListPublic(r.Context(), limit, offset)
 	} else {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "user_id, source_id, or public=true required"})
+		httpx.WriteError(w, http.StatusBadRequest, "user_id, source_id, or public=true required")
+		return
 	}
-
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to list notes"})
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to list notes")
+		return
 	}
 
-	return c.JSON(http.StatusOK, notes)
+	publicNotes := make([]*Note, 0, len(result))
+	for _, note := range result {
+		if note.IsPublic {
+			publicNotes = append(publicNotes, note)
+		}
+	}
+	httpx.WriteJSON(w, http.StatusOK, publicNotes)
 }
 
-func (h *Handler) Update(c echo.Context) error {
-	idStr := c.Param("id")
-	id, err := uuid.Parse(idStr)
+func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	id, ok := parsePathUUID(w, r, "id", "note ID")
+	if !ok {
+		return
+	}
+
+	existing, err := h.service.GetByID(r.Context(), id)
+	if errors.Is(err, ErrNoteNotFound) {
+		httpx.WriteError(w, http.StatusNotFound, "note not found")
+		return
+	}
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid note ID"})
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to get note")
+		return
+	}
+	if existing.UserID != userID {
+		httpx.WriteError(w, http.StatusForbidden, "cannot update another user's note")
+		return
 	}
 
 	var req UpdateRequest
-	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+	if err := httpx.ReadJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
+		return
 	}
-
-	// TODO: Validate user owns the note when backend auth is implemented
 
 	var contentType *ContentType
 	if req.ContentType != nil {
@@ -176,55 +188,70 @@ func (h *Handler) Update(c echo.Context) error {
 		contentType = &ct
 	}
 
-	note, err := h.service.Update(c.Request().Context(), id, UpdateNoteParams{
+	note, err := h.service.Update(r.Context(), id, UpdateNoteParams{
 		Content:     req.Content,
 		ContentType: contentType,
 		IsPublic:    req.IsPublic,
 		Annotations: req.Annotations,
 		Tags:        req.Tags,
 	})
-
-	if err == ErrNoteNotFound {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "note not found"})
-	}
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to update note"})
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to update note")
+		return
 	}
 
-	return c.JSON(http.StatusOK, note)
+	httpx.WriteJSON(w, http.StatusOK, note)
 }
 
-func (h *Handler) Delete(c echo.Context) error {
-	idStr := c.Param("id")
-	id, err := uuid.Parse(idStr)
+func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	id, ok := parsePathUUID(w, r, "id", "note ID")
+	if !ok {
+		return
+	}
+
+	existing, err := h.service.GetByID(r.Context(), id)
+	if errors.Is(err, ErrNoteNotFound) {
+		httpx.WriteError(w, http.StatusNotFound, "note not found")
+		return
+	}
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid note ID"})
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to get note")
+		return
+	}
+	if existing.UserID != userID {
+		httpx.WriteError(w, http.StatusForbidden, "cannot delete another user's note")
+		return
 	}
 
-	// TODO: Validate user owns the note when backend auth is implemented
-
-	if err := h.service.Delete(c.Request().Context(), id); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to delete note"})
+	if err := h.service.Delete(r.Context(), id); err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to delete note")
+		return
 	}
-
-	return c.NoContent(http.StatusNoContent)
+	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Handler) parsePagination(c echo.Context) (limit, offset int) {
-	limit = 100
-	offset = 0
-
-	if l := c.QueryParam("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
-			limit = parsed
-		}
+func parsePathUUID(w http.ResponseWriter, r *http.Request, key, label string) (uuid.UUID, bool) {
+	id, err := uuid.FromString(r.PathValue(key))
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid "+label)
+		return uuid.Nil, false
 	}
+	return id, true
+}
 
-	if o := c.QueryParam("offset"); o != "" {
-		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
-			offset = parsed
-		}
+func parseOptionalUUID(w http.ResponseWriter, value *string, label string) (*uuid.UUID, bool) {
+	if value == nil {
+		return nil, true
 	}
-
-	return limit, offset
+	id, err := uuid.FromString(*value)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid "+label)
+		return nil, false
+	}
+	return &id, true
 }

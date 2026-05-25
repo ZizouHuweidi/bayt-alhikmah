@@ -1,15 +1,16 @@
 package pkg
 
 import (
+	"encoding/json"
 	"net/http"
-
-	"github.com/labstack/echo/v4"
 )
 
 type HealthResponse struct {
 	Status string `json:"status"`
 }
 
-func HealthCheckHandler(c echo.Context) error {
-	return c.JSON(http.StatusOK, HealthResponse{Status: "ok"})
+func HealthCheckHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(HealthResponse{Status: "ok"})
 }

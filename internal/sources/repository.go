@@ -3,9 +3,11 @@ package sources
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/gofrs/uuid/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/zizouhuweidi/maktaba/internal/db"
 )
@@ -14,198 +16,226 @@ type postgresRepository struct {
 	db *db.DB
 }
 
-// NewPostgresRepository creates a new postgres repository for sources
+type sourceRow struct {
+	ID          pgtype.UUID
+	Title       string
+	Subtitle    pgtype.Text
+	Type        string
+	Description pgtype.Text
+	AuthorID    pgtype.UUID
+	Publisher   pgtype.Text
+	ISBN        pgtype.Text
+	DOI         pgtype.Text
+	URL         pgtype.Text
+	ExternalID  pgtype.Text
+	Tags        []byte
+	PublishedAt pgtype.Timestamptz
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 func NewPostgresRepository(d *db.DB) Repository {
-	return &postgresRepository{
-		db: d,
-	}
+	return &postgresRepository{db: d}
 }
 
 func (r *postgresRepository) Create(ctx context.Context, s *Source) (*Source, error) {
-	row, err := r.db.Queries.CreateSource(ctx, db.CreateSourceParams{
-		Title:       s.Title,
-		Subtitle:    r.toText(s.Subtitle),
-		Type:        string(s.Type),
-		Description: r.toText(s.Description),
-		AuthorID:    r.toUUID(s.AuthorID),
-		Publisher:   r.toText(s.Publisher),
-		Isbn:        r.toText(s.ISBN),
-		Doi:         r.toText(s.DOI),
-		Url:         r.toText(s.URL),
-		ExternalID:  r.toText(s.ExternalID),
-		Tags:        r.toRawJSON(s.Tags),
-		PublishedAt: r.toTimestamp(s.PublishedAt),
-	})
+	id, err := uuid.NewV7()
+	if err != nil {
+		return nil, err
+	}
+	tags, err := json.Marshal(s.Tags)
 	if err != nil {
 		return nil, err
 	}
 
-	return r.mapToSource(row), nil
+	row, err := scanSource(r.db.QueryRow(ctx, `
+		INSERT INTO sources (id, title, subtitle, type, description, author_id, publisher, isbn, doi, url, external_id, tags, published_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		RETURNING id, title, subtitle, type, description, author_id, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
+	`, id.String(), s.Title, s.Subtitle, string(s.Type), s.Description, nullableUUIDString(s.AuthorID), s.Publisher, s.ISBN, s.DOI, s.URL, s.ExternalID, tags, s.PublishedAt))
+	if err != nil {
+		return nil, err
+	}
+
+	return r.mapRow(row), nil
 }
 
 func (r *postgresRepository) GetByID(ctx context.Context, id uuid.UUID) (*Source, error) {
-	row, err := r.db.Queries.GetSource(ctx, id)
+	row, err := scanSource(r.db.QueryRow(ctx, `
+		SELECT id, title, subtitle, type, description, author_id, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
+		FROM sources WHERE id = $1 LIMIT 1
+	`, id.String()))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
 
-	return r.mapToSource(row), nil
+	return r.mapRow(row), nil
 }
 
 func (r *postgresRepository) List(ctx context.Context, limit, offset int) ([]*Source, error) {
-	rows, err := r.db.Queries.ListSources(ctx, db.ListSourcesParams{
-		Limit:  int32(limit),
-		Offset: int32(offset),
-	})
+	rows, err := r.db.Query(ctx, `
+		SELECT id, title, subtitle, type, description, author_id, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
+		FROM sources ORDER BY created_at DESC LIMIT $1 OFFSET $2
+	`, limit, offset)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
-	sources := make([]*Source, len(rows))
-	for i, row := range rows {
-		sources[i] = r.mapToSource(row)
-	}
-	return sources, nil
+	return r.scanRows(rows)
 }
 
 func (r *postgresRepository) ListByType(ctx context.Context, sourceType SourceType, limit, offset int) ([]*Source, error) {
-	rows, err := r.db.Queries.ListSourcesByType(ctx, db.ListSourcesByTypeParams{
-		Type:   string(sourceType),
-		Limit:  int32(limit),
-		Offset: int32(offset),
-	})
+	rows, err := r.db.Query(ctx, `
+		SELECT id, title, subtitle, type, description, author_id, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
+		FROM sources WHERE type = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3
+	`, string(sourceType), limit, offset)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
-	sources := make([]*Source, len(rows))
-	for i, row := range rows {
-		sources[i] = r.mapToSource(row)
-	}
-	return sources, nil
+	return r.scanRows(rows)
 }
 
 func (r *postgresRepository) Update(ctx context.Context, s *Source) (*Source, error) {
-	row, err := r.db.Queries.UpdateSource(ctx, db.UpdateSourceParams{
-		ID:          s.ID,
-		Title:       r.toText(&s.Title),
-		Subtitle:    r.toText(s.Subtitle),
-		Type:        r.toText((*string)(&s.Type)),
-		Description: r.toText(s.Description),
-		AuthorID:    r.toUUID(s.AuthorID),
-		Publisher:   r.toText(s.Publisher),
-		Isbn:        r.toText(s.ISBN),
-		Doi:         r.toText(s.DOI),
-		Url:         r.toText(s.URL),
-		ExternalID:  r.toText(s.ExternalID),
-		Tags:        r.toRawJSON(s.Tags),
-		PublishedAt: r.toTimestamp(s.PublishedAt),
-	})
+	tags, err := json.Marshal(s.Tags)
 	if err != nil {
 		return nil, err
 	}
 
-	return r.mapToSource(row), nil
+	row, err := scanSource(r.db.QueryRow(ctx, `
+		UPDATE sources
+		SET title = $2, subtitle = $3, type = $4, description = $5, author_id = $6, publisher = $7,
+			isbn = $8, doi = $9, url = $10, external_id = $11, tags = $12, published_at = $13, updated_at = NOW()
+		WHERE id = $1
+		RETURNING id, title, subtitle, type, description, author_id, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
+	`, s.ID.String(), s.Title, s.Subtitle, string(s.Type), s.Description, nullableUUIDString(s.AuthorID), s.Publisher, s.ISBN, s.DOI, s.URL, s.ExternalID, tags, s.PublishedAt))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return r.mapRow(row), nil
 }
 
 func (r *postgresRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	return r.db.Queries.DeleteSource(ctx, id)
+	_, err := r.db.Exec(ctx, `DELETE FROM sources WHERE id = $1`, id.String())
+	return err
 }
 
 func (r *postgresRepository) Search(ctx context.Context, query string, limit, offset int) ([]*Source, error) {
-	rows, err := r.db.Queries.SearchSourcesByTitle(ctx, db.SearchSourcesByTitleParams{
-		Column1: r.toText(&query),
-		Limit:   int32(limit),
-		Offset:  int32(offset),
-	})
+	rows, err := r.db.Query(ctx, `
+		SELECT id, title, subtitle, type, description, author_id, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
+		FROM sources WHERE title ILIKE '%' || $1 || '%' ORDER BY created_at DESC LIMIT $2 OFFSET $3
+	`, query, limit, offset)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
-	sources := make([]*Source, len(rows))
-	for i, row := range rows {
-		sources[i] = r.mapToSource(row)
+	return r.scanRows(rows)
+}
+
+func (r *postgresRepository) Count(ctx context.Context) (int64, error) {
+	var count int64
+	err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM sources`).Scan(&count)
+	return count, err
+}
+
+func (r *postgresRepository) scanRows(rows pgx.Rows) ([]*Source, error) {
+	var sources []*Source
+	for rows.Next() {
+		row, err := scanSource(rows)
+		if err != nil {
+			return nil, err
+		}
+		sources = append(sources, r.mapRow(row))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return sources, nil
 }
 
-func (r *postgresRepository) Count(ctx context.Context) (int64, error) {
-	return r.db.Queries.CountSources(ctx)
+func scanSource(row pgx.Row) (sourceRow, error) {
+	var s sourceRow
+	err := row.Scan(
+		&s.ID,
+		&s.Title,
+		&s.Subtitle,
+		&s.Type,
+		&s.Description,
+		&s.AuthorID,
+		&s.Publisher,
+		&s.ISBN,
+		&s.DOI,
+		&s.URL,
+		&s.ExternalID,
+		&s.Tags,
+		&s.PublishedAt,
+		&s.CreatedAt,
+		&s.UpdatedAt,
+	)
+	return s, err
 }
 
-func (r *postgresRepository) mapToSource(row db.Source) *Source {
+func (r *postgresRepository) mapRow(row sourceRow) *Source {
 	var tags []string
-	if row.Tags != nil {
-		json.Unmarshal(row.Tags, &tags)
+	if len(row.Tags) > 0 {
+		_ = json.Unmarshal(row.Tags, &tags)
 	}
 
 	return &Source{
-		ID:          row.ID,
+		ID:          uuid.UUID(row.ID.Bytes),
 		Title:       row.Title,
-		Subtitle:    r.fromText(row.Subtitle),
+		Subtitle:    stringPtr(row.Subtitle),
 		Type:        SourceType(row.Type),
-		Description: r.fromText(row.Description),
-		AuthorID:    r.fromUUID(row.AuthorID),
-		Publisher:   r.fromText(row.Publisher),
-		ISBN:        r.fromText(row.Isbn),
-		DOI:         r.fromText(row.Doi),
-		URL:         r.fromText(row.Url),
-		ExternalID:  r.fromText(row.ExternalID),
+		Description: stringPtr(row.Description),
+		AuthorID:    uuidPtr(row.AuthorID),
+		Publisher:   stringPtr(row.Publisher),
+		ISBN:        stringPtr(row.ISBN),
+		DOI:         stringPtr(row.DOI),
+		URL:         stringPtr(row.URL),
+		ExternalID:  stringPtr(row.ExternalID),
 		Tags:        tags,
-		PublishedAt: r.fromTimestamp(row.PublishedAt),
-		CreatedAt:   *r.fromTimestamp(row.CreatedAt),
-		UpdatedAt:   *r.fromTimestamp(row.UpdatedAt),
+		PublishedAt: timePtr(row.PublishedAt),
+		CreatedAt:   row.CreatedAt,
+		UpdatedAt:   row.UpdatedAt,
 	}
 }
 
-// Helper methods for pgtype conversions
-func (r *postgresRepository) toText(s *string) pgtype.Text {
-	if s == nil {
-		return pgtype.Text{Valid: false}
-	}
-	return pgtype.Text{String: *s, Valid: true}
-}
-
-func (r *postgresRepository) fromText(t pgtype.Text) *string {
-	if !t.Valid {
+func stringPtr(value pgtype.Text) *string {
+	if !value.Valid {
 		return nil
 	}
-	return &t.String
+	return &value.String
 }
 
-func (r *postgresRepository) toUUID(u *uuid.UUID) pgtype.UUID {
-	if u == nil {
-		return pgtype.UUID{Valid: false}
-	}
-	return pgtype.UUID{Bytes: *u, Valid: true}
-}
-
-func (r *postgresRepository) fromUUID(u pgtype.UUID) *uuid.UUID {
-	if !u.Valid {
+func uuidPtr(value pgtype.UUID) *uuid.UUID {
+	if !value.Valid {
 		return nil
 	}
-	res := uuid.UUID(u.Bytes)
-	return &res
+	id := uuid.UUID(value.Bytes)
+	return &id
 }
 
-func (r *postgresRepository) toTimestamp(t *time.Time) pgtype.Timestamptz {
-	if t == nil {
-		return pgtype.Timestamptz{Valid: false}
-	}
-	return pgtype.Timestamptz{Time: *t, Valid: true}
-}
-
-func (r *postgresRepository) fromTimestamp(t pgtype.Timestamptz) *time.Time {
-	if !t.Valid {
+func nullableUUIDString(value *uuid.UUID) *string {
+	if value == nil {
 		return nil
 	}
-	return &t.Time
+	result := value.String()
+	return &result
 }
 
-func (r *postgresRepository) toRawJSON(data interface{}) []byte {
-	if data == nil {
+func timePtr(value pgtype.Timestamptz) *time.Time {
+	if !value.Valid {
 		return nil
 	}
-	b, _ := json.Marshal(data)
-	return b
+	return &value.Time
 }

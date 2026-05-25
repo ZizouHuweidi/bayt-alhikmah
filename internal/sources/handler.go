@@ -1,12 +1,12 @@
 package sources
 
 import (
-	"net/http"
-	"strconv"
-
-	"github.com/google/uuid"
-	"github.com/labstack/echo/v4"
+	"errors"
 	"log/slog"
+	"net/http"
+
+	"github.com/gofrs/uuid/v5"
+	"github.com/zizouhuweidi/maktaba/internal/httpx"
 )
 
 type Handler struct {
@@ -15,10 +15,7 @@ type Handler struct {
 }
 
 func NewHandler(service *Service, logger *slog.Logger) *Handler {
-	return &Handler{
-		service: service,
-		logger:  logger,
-	}
+	return &Handler{service: service, logger: logger}
 }
 
 type CreateRequest struct {
@@ -33,7 +30,6 @@ type CreateRequest struct {
 	URL         *string  `json:"url,omitempty"`
 	ExternalID  *string  `json:"external_id,omitempty"`
 	Tags        []string `json:"tags,omitempty"`
-	PublishedAt *string  `json:"published_at,omitempty"`
 }
 
 type UpdateRequest struct {
@@ -48,41 +44,33 @@ type UpdateRequest struct {
 	URL         *string  `json:"url,omitempty"`
 	ExternalID  *string  `json:"external_id,omitempty"`
 	Tags        []string `json:"tags,omitempty"`
-	PublishedAt *string  `json:"published_at,omitempty"`
 }
 
-// RegisterPublicRoutes registers public routes (no auth required)
-func (h *Handler) RegisterPublicRoutes(e *echo.Echo) {
-	g := e.Group("/sources")
-	g.GET("", h.List)
-	g.GET("/search", h.Search)
-	g.GET("/:id", h.GetByID)
+func (h *Handler) RegisterPublicRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /sources", h.List)
+	mux.HandleFunc("GET /sources/search", h.Search)
+	mux.HandleFunc("GET /sources/{id}", h.GetByID)
 }
 
-// RegisterProtectedRoutes registers protected routes (auth required)
-func (h *Handler) RegisterProtectedRoutes(e *echo.Group) {
-	g := e.Group("/sources")
-	g.POST("", h.Create)
-	g.PUT("/:id", h.Update)
-	g.DELETE("/:id", h.Delete)
+func (h *Handler) RegisterProtectedRoutes(mux *http.ServeMux, middleware func(http.Handler) http.Handler) {
+	mux.Handle("POST /api/sources", middleware(http.HandlerFunc(h.Create)))
+	mux.Handle("PUT /api/sources/{id}", middleware(http.HandlerFunc(h.Update)))
+	mux.Handle("DELETE /api/sources/{id}", middleware(http.HandlerFunc(h.Delete)))
 }
 
-func (h *Handler) Create(c echo.Context) error {
+func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	var req CreateRequest
-	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+	if err := httpx.ReadJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
+		return
 	}
 
-	var authorID *uuid.UUID
-	if req.AuthorID != nil {
-		id, err := uuid.Parse(*req.AuthorID)
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid author_id"})
-		}
-		authorID = &id
+	authorID, ok := parseOptionalUUID(w, req.AuthorID, "author_id")
+	if !ok {
+		return
 	}
 
-	source, err := h.service.Create(c.Request().Context(), CreateSourceParams{
+	source, err := h.service.Create(r.Context(), CreateSourceParams{
 		Title:       req.Title,
 		Subtitle:    req.Subtitle,
 		Type:        SourceType(req.Type),
@@ -95,95 +83,96 @@ func (h *Handler) Create(c echo.Context) error {
 		ExternalID:  req.ExternalID,
 		Tags:        req.Tags,
 	})
-
+	if errors.Is(err, ErrInvalidSource) {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid source")
+		return
+	}
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create source"})
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to create source")
+		return
 	}
 
-	return c.JSON(http.StatusCreated, source)
+	httpx.WriteJSON(w, http.StatusCreated, source)
 }
 
-func (h *Handler) GetByID(c echo.Context) error {
-	idStr := c.Param("id")
-	id, err := uuid.Parse(idStr)
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid source ID"})
+func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
+	id, ok := parsePathUUID(w, r, "id", "source ID")
+	if !ok {
+		return
 	}
 
-	source, err := h.service.GetByID(c.Request().Context(), id)
-	if err == ErrSourceNotFound {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "source not found"})
+	source, err := h.service.GetByID(r.Context(), id)
+	if errors.Is(err, ErrSourceNotFound) {
+		httpx.WriteError(w, http.StatusNotFound, "source not found")
+		return
 	}
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to get source"})
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to get source")
+		return
 	}
 
-	return c.JSON(http.StatusOK, source)
+	httpx.WriteJSON(w, http.StatusOK, source)
 }
 
-func (h *Handler) List(c echo.Context) error {
-	limit, offset := h.parsePagination(c)
-	sourceType := c.QueryParam("type")
+func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
+	limit, offset := httpx.Pagination(r)
+	sourceType := r.URL.Query().Get("type")
 
 	var sources []*Source
 	var err error
-
 	if sourceType != "" {
-		sources, err = h.service.ListByType(c.Request().Context(), SourceType(sourceType), limit, offset)
+		sources, err = h.service.ListByType(r.Context(), SourceType(sourceType), limit, offset)
 	} else {
-		sources, err = h.service.List(c.Request().Context(), limit, offset)
+		sources, err = h.service.List(r.Context(), limit, offset)
 	}
-
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to list sources"})
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to list sources")
+		return
 	}
 
-	return c.JSON(http.StatusOK, sources)
+	httpx.WriteJSON(w, http.StatusOK, sources)
 }
 
-func (h *Handler) Search(c echo.Context) error {
-	query := c.QueryParam("q")
+func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query().Get("q")
 	if query == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "search query required"})
+		httpx.WriteError(w, http.StatusBadRequest, "search query required")
+		return
 	}
 
-	limit, offset := h.parsePagination(c)
-	sources, err := h.service.Search(c.Request().Context(), query, limit, offset)
+	limit, offset := httpx.Pagination(r)
+	sources, err := h.service.Search(r.Context(), query, limit, offset)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to search sources"})
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to search sources")
+		return
 	}
 
-	return c.JSON(http.StatusOK, sources)
+	httpx.WriteJSON(w, http.StatusOK, sources)
 }
 
-func (h *Handler) Update(c echo.Context) error {
-	idStr := c.Param("id")
-	id, err := uuid.Parse(idStr)
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid source ID"})
+func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
+	id, ok := parsePathUUID(w, r, "id", "source ID")
+	if !ok {
+		return
 	}
 
 	var req UpdateRequest
-	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+	if err := httpx.ReadJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
+		return
 	}
 
-	var authorID *uuid.UUID
-	if req.AuthorID != nil {
-		aid, err := uuid.Parse(*req.AuthorID)
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid author_id"})
-		}
-		authorID = &aid
+	authorID, ok := parseOptionalUUID(w, req.AuthorID, "author_id")
+	if !ok {
+		return
 	}
-
 	var sourceType *SourceType
 	if req.Type != nil {
 		st := SourceType(*req.Type)
 		sourceType = &st
 	}
 
-	source, err := h.service.Update(c.Request().Context(), id, UpdateSourceParams{
+	source, err := h.service.Update(r.Context(), id, UpdateSourceParams{
 		Title:       req.Title,
 		Subtitle:    req.Subtitle,
 		Type:        sourceType,
@@ -196,46 +185,47 @@ func (h *Handler) Update(c echo.Context) error {
 		ExternalID:  req.ExternalID,
 		Tags:        req.Tags,
 	})
-
-	if err == ErrSourceNotFound {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "source not found"})
+	if errors.Is(err, ErrSourceNotFound) {
+		httpx.WriteError(w, http.StatusNotFound, "source not found")
+		return
 	}
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to update source"})
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to update source")
+		return
 	}
 
-	return c.JSON(http.StatusOK, source)
+	httpx.WriteJSON(w, http.StatusOK, source)
 }
 
-func (h *Handler) Delete(c echo.Context) error {
-	idStr := c.Param("id")
-	id, err := uuid.Parse(idStr)
+func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
+	id, ok := parsePathUUID(w, r, "id", "source ID")
+	if !ok {
+		return
+	}
+	if err := h.service.Delete(r.Context(), id); err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to delete source")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func parsePathUUID(w http.ResponseWriter, r *http.Request, key, label string) (uuid.UUID, bool) {
+	id, err := uuid.FromString(r.PathValue(key))
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid source ID"})
+		httpx.WriteError(w, http.StatusBadRequest, "invalid "+label)
+		return uuid.Nil, false
 	}
-
-	if err := h.service.Delete(c.Request().Context(), id); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to delete source"})
-	}
-
-	return c.NoContent(http.StatusNoContent)
+	return id, true
 }
 
-func (h *Handler) parsePagination(c echo.Context) (limit, offset int) {
-	limit = 100
-	offset = 0
-
-	if l := c.QueryParam("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
-			limit = parsed
-		}
+func parseOptionalUUID(w http.ResponseWriter, value *string, label string) (*uuid.UUID, bool) {
+	if value == nil {
+		return nil, true
 	}
-
-	if o := c.QueryParam("offset"); o != "" {
-		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
-			offset = parsed
-		}
+	id, err := uuid.FromString(*value)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid "+label)
+		return nil, false
 	}
-
-	return limit, offset
+	return &id, true
 }

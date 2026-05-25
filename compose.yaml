@@ -1,0 +1,46 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg18
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-maktaba}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-maktaba}
+      POSTGRES_DB: ${POSTGRES_DB:-maktaba}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+      - ./migrations:/migrations:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-maktaba} -d $${POSTGRES_DB:-maktaba}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Containerfile
+    image: bayt-alhikmah:latest
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://maktaba:maktaba@postgres:5432/maktaba?sslmode=disable}
+      PORT: 8080
+      AUTH_ISSUER: ${AUTH_ISSUER:-bayt-alhikmah}
+      AUTH_AUDIENCE: ${AUTH_AUDIENCE:-bayt-alhikmah-api}
+      AUTH_ED25519_PRIVATE_KEY: ${AUTH_ED25519_PRIVATE_KEY:-}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

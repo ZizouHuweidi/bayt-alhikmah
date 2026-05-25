@@ -1,66 +1,84 @@
 # Bayt al Hikmah
 
-Bayt al Hikmah is a knowledge management platform that helps users organize, explore, discover and interact with knowledge sources.
+Bayt al Hikmah is a knowledge-management platform for organizing, tracking, reviewing, and annotating knowledge sources.
 
+The current implementation is a Go platform service plus a React frontend. The backend is intentionally simple: one service, PostgreSQL, first-party auth, and explicit SQL through native `pgx`/`pgxpool`.
 
-## Platform Service 
-- **Language**: Go
-- **Responsibilities**:
-  - Sources management (books, papers, articles, etc.)
-  - Notes management
-  - Collections and reviews
-  - User profiles
+## Backend
+
+- Go service in `cmd/server`
+- Standard library `net/http` router
+- PostgreSQL using native `pgx`/`pgxpool`
+- Goose SQL migrations in `migrations/`, run through `cmd/migrate`
+- UUID v7 generated in Go for primary keys
+- Argon2id password hashing
+- Ed25519/EdDSA JWT access tokens
+- Opaque refresh tokens stored hashed in PostgreSQL
+
+## Frontend
+
+- React + Vite
+- TanStack Router
+- Tailwind CSS
 
 ## Infrastructure
 
-- **PostgreSQL 18**: Primary database with pgvector support
-- **Redis 8**: Caching and session storage
-- **Redpanda**: Kafka-compatible event streaming
-- **Meilisearch v1.5**: Full-text search
-- **ORY Stack**: Authentication and authorization (Kratos, Hydra, Oathkeeper)
+- PostgreSQL with pgvector extension available for future recommendation/search work
+- Podman-first local development through `compose.yaml` and `justfile`
 
 ## Getting Started
 
-### Prerequisites
+1. Copy environment variables: `cp .env.example .env`
+2. Start services: `just up`
+3. Run migrations: `just migrate`
+4. Run tests: `just test`
+5. Check health: `just health`
 
-- Docker and Docker Compose
-- Go 1.26 (for local development)
+## Useful Commands
 
-### Using Docker Compose
-
-1. Clone the repository
-2. Copy environment variables: `cp .env.example .env`
-3. Start all services: `make up` (or `docker-compose up -d`)
-4. Run migrations: `make migrate-maktaba`
-5. Check service health: `make status`
-
-#### Useful Make Commands
-- `make up` - Start all services
-- `make down` - Stop all services
-- `make logs` - View all logs
-- `make status` - Check service health
-- `make build-all` - Build all service images
-- `make migrate-all` - Run all migrations
-- `make test-all` - Run all tests
-- `make lint-all` - Lint all code
-- `make clean` - Remove all containers and volumes
-- `make api` - Open Maktaba API in browser
-- `make pgadmin` - Open pgAdmin
-- `make help` - See all available commands
-
+- `just up` - Start local services with Podman Compose
+- `just down` - Stop local services
+- `just logs` - Follow service logs
+- `just build` - Build the Go service container image
+- `just run` - Run the Go service locally
+- `just test` - Run Go tests
+- `just fmt` - Format Go code
+- `just migrate` - Apply database migration
+- `just migrate-down` - Roll back database migration
+- `just migrate-status` - Show Goose migration status
+- `just migrate-create name` - Create a new Goose SQL migration
+- `just db-shell` - Open psql inside the Postgres container
+- `just frontend-dev` - Start the frontend dev server
 
 ## API Endpoints
 
-**Sources**:
-- `POST /sources` - Create source
-- `GET /sources` - List sources
-- `GET /sources/{id}` - Get source by ID
-- `PUT /sources/{id}` - Update source
-- `DELETE /sources/{id}` - Delete source
+Auth:
 
-**Notes**:
-- `POST /notes` - Create note
-- `GET /notes?user_id={id}` - List notes for user
-- `GET /notes/{id}` - Get note by ID
-- `PUT /notes/{id}` - Update note
-- `DELETE /notes/{id}` - Delete note
+- `POST /auth/register` - Register with email, username, and password
+- `POST /auth/login` - Login with email or username and password
+- `POST /auth/refresh` - Rotate refresh token and issue a new access token
+- `GET /api/me` - Current authenticated user
+
+Sources:
+
+- `POST /api/sources` - Create source
+- `GET /sources` - List public sources
+- `GET /sources/search?q={query}` - Search sources by title
+- `GET /sources/{id}` - Get source by ID
+- `PUT /api/sources/{id}` - Update source
+- `DELETE /api/sources/{id}` - Delete source
+
+Notes:
+
+- `POST /api/notes` - Create authenticated user's note
+- `GET /notes?public=true` - List public notes
+- `GET /notes?source_id={id}` - List public notes for a source
+- `GET /notes/{id}` - Get a public note by ID
+- `PUT /api/notes/{id}` - Update own note
+- `DELETE /api/notes/{id}` - Delete own note
+
+Authenticated requests use an EdDSA JWT access token:
+
+```http
+Authorization: Bearer <access_token>
+```

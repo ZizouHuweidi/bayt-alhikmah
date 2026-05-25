@@ -6,7 +6,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/gofrs/uuid/v5"
 )
 
 // SourceType represents the type of knowledge source
@@ -24,20 +24,20 @@ const (
 // Source represents a knowledge source entity
 type Source struct {
 	ID          uuid.UUID  `json:"id"`
-	Title       string     `json:"title"`
-	Subtitle    *string    `json:"subtitle,omitempty"`
-	Type        SourceType `json:"type"`
-	Description *string    `json:"description,omitempty"`
-	AuthorID    *uuid.UUID `json:"author_id,omitempty"`
-	Publisher   *string    `json:"publisher,omitempty"`
-	ISBN        *string    `json:"isbn,omitempty"`
-	DOI         *string    `json:"doi,omitempty"`
-	URL         *string    `json:"url,omitempty"`
-	ExternalID  *string    `json:"external_id,omitempty"`
-	Tags        []string   `json:"tags,omitempty"`
-	PublishedAt *time.Time `json:"published_at,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	Title       string     `json:"title" db:"title"`
+	Subtitle    *string    `json:"subtitle,omitempty" db:"subtitle"`
+	Type        SourceType `json:"type" db:"type"`
+	Description *string    `json:"description,omitempty" db:"description"`
+	AuthorID    *uuid.UUID `json:"author_id,omitempty" db:"author_id"`
+	Publisher   *string    `json:"publisher,omitempty" db:"publisher"`
+	ISBN        *string    `json:"isbn,omitempty" db:"isbn"`
+	DOI         *string    `json:"doi,omitempty" db:"doi"`
+	URL         *string    `json:"url,omitempty" db:"url"`
+	ExternalID  *string    `json:"external_id,omitempty" db:"external_id"`
+	Tags        []string   `json:"tags,omitempty" db:"-"`
+	PublishedAt *time.Time `json:"published_at,omitempty" db:"published_at"`
+	CreatedAt   time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at" db:"updated_at"`
 }
 
 // Author represents a source author

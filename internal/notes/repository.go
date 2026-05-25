@@ -3,8 +3,11 @@ package notes
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"time"
 
-	"github.com/google/uuid"
+	"github.com/gofrs/uuid/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/zizouhuweidi/maktaba/internal/db"
 )
@@ -13,180 +16,208 @@ type postgresRepository struct {
 	db *db.DB
 }
 
-// NewPostgresRepository creates a new postgres repository for notes
+type noteRow struct {
+	ID          pgtype.UUID
+	UserID      pgtype.UUID
+	SourceID    pgtype.UUID
+	Content     string
+	ContentType string
+	IsPublic    bool
+	Annotations []byte
+	Tags        []byte
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 func NewPostgresRepository(d *db.DB) Repository {
-	return &postgresRepository{
-		db: d,
-	}
+	return &postgresRepository{db: d}
 }
 
 func (r *postgresRepository) Create(ctx context.Context, n *Note) (*Note, error) {
-	row, err := r.db.Queries.CreateNote(ctx, db.CreateNoteParams{
-		UserID:      n.UserID,
-		SourceID:    r.toUUID(n.SourceID),
-		Content:     n.Content,
-		ContentType: string(n.ContentType),
-		IsPublic:    r.toBool(n.IsPublic),
-		Annotations: r.toRawJSON(n.Annotations),
-		Tags:        r.toRawJSON(n.Tags),
-	})
+	id, err := uuid.NewV7()
+	if err != nil {
+		return nil, err
+	}
+	annotations, err := json.Marshal(n.Annotations)
+	if err != nil {
+		return nil, err
+	}
+	tags, err := json.Marshal(n.Tags)
 	if err != nil {
 		return nil, err
 	}
 
-	return r.mapToNote(row), nil
+	row, err := scanNote(r.db.QueryRow(ctx, `
+		INSERT INTO notes (id, user_id, source_id, content, content_type, is_public, annotations, tags)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id, user_id, source_id, content, content_type, is_public, annotations, tags, created_at, updated_at
+	`, id.String(), n.UserID.String(), nullableUUIDString(n.SourceID), n.Content, string(n.ContentType), n.IsPublic, annotations, tags))
+	if err != nil {
+		return nil, err
+	}
+
+	return r.mapRow(row), nil
 }
 
 func (r *postgresRepository) GetByID(ctx context.Context, id uuid.UUID) (*Note, error) {
-	row, err := r.db.Queries.GetNote(ctx, id)
+	row, err := scanNote(r.db.QueryRow(ctx, `
+		SELECT id, user_id, source_id, content, content_type, is_public, annotations, tags, created_at, updated_at
+		FROM notes WHERE id = $1 LIMIT 1
+	`, id.String()))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
 
-	return r.mapToNote(row), nil
+	return r.mapRow(row), nil
 }
 
 func (r *postgresRepository) ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]*Note, error) {
-	rows, err := r.db.Queries.ListNotesByUser(ctx, db.ListNotesByUserParams{
-		UserID: userID,
-		Limit:  int32(limit),
-		Offset: int32(offset),
-	})
+	rows, err := r.db.Query(ctx, `
+		SELECT id, user_id, source_id, content, content_type, is_public, annotations, tags, created_at, updated_at
+		FROM notes WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3
+	`, userID.String(), limit, offset)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
-	notes := make([]*Note, len(rows))
-	for i, row := range rows {
-		notes[i] = r.mapToNote(row)
-	}
-	return notes, nil
+	return r.scanRows(rows)
 }
 
 func (r *postgresRepository) ListBySource(ctx context.Context, sourceID uuid.UUID, limit, offset int) ([]*Note, error) {
-	rows, err := r.db.Queries.ListNotesBySource(ctx, db.ListNotesBySourceParams{
-		SourceID: r.toUUID(&sourceID),
-		Limit:    int32(limit),
-		Offset:   int32(offset),
-	})
+	rows, err := r.db.Query(ctx, `
+		SELECT id, user_id, source_id, content, content_type, is_public, annotations, tags, created_at, updated_at
+		FROM notes WHERE source_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3
+	`, sourceID.String(), limit, offset)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
-	notes := make([]*Note, len(rows))
-	for i, row := range rows {
-		notes[i] = r.mapToNote(row)
-	}
-	return notes, nil
+	return r.scanRows(rows)
 }
 
 func (r *postgresRepository) ListPublic(ctx context.Context, limit, offset int) ([]*Note, error) {
-	rows, err := r.db.Queries.ListPublicNotes(ctx, db.ListPublicNotesParams{
-		Limit:  int32(limit),
-		Offset: int32(offset),
-	})
+	rows, err := r.db.Query(ctx, `
+		SELECT id, user_id, source_id, content, content_type, is_public, annotations, tags, created_at, updated_at
+		FROM notes WHERE is_public = true ORDER BY created_at DESC LIMIT $1 OFFSET $2
+	`, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return r.scanRows(rows)
+}
+
+func (r *postgresRepository) Update(ctx context.Context, n *Note) (*Note, error) {
+	annotations, err := json.Marshal(n.Annotations)
+	if err != nil {
+		return nil, err
+	}
+	tags, err := json.Marshal(n.Tags)
 	if err != nil {
 		return nil, err
 	}
 
-	notes := make([]*Note, len(rows))
-	for i, row := range rows {
-		notes[i] = r.mapToNote(row)
+	row, err := scanNote(r.db.QueryRow(ctx, `
+		UPDATE notes
+		SET content = $2, content_type = $3, is_public = $4, annotations = $5, tags = $6, updated_at = NOW()
+		WHERE id = $1
+		RETURNING id, user_id, source_id, content, content_type, is_public, annotations, tags, created_at, updated_at
+	`, n.ID.String(), n.Content, string(n.ContentType), n.IsPublic, annotations, tags))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return r.mapRow(row), nil
+}
+
+func (r *postgresRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	_, err := r.db.Exec(ctx, `DELETE FROM notes WHERE id = $1`, id.String())
+	return err
+}
+
+func (r *postgresRepository) CountByUser(ctx context.Context, userID uuid.UUID) (int64, error) {
+	var count int64
+	err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM notes WHERE user_id = $1`, userID.String()).Scan(&count)
+	return count, err
+}
+
+func (r *postgresRepository) scanRows(rows pgx.Rows) ([]*Note, error) {
+	var notes []*Note
+	for rows.Next() {
+		row, err := scanNote(rows)
+		if err != nil {
+			return nil, err
+		}
+		notes = append(notes, r.mapRow(row))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return notes, nil
 }
 
-func (r *postgresRepository) Update(ctx context.Context, n *Note) (*Note, error) {
-	row, err := r.db.Queries.UpdateNote(ctx, db.UpdateNoteParams{
-		ID:          n.ID,
-		Content:     r.toText(r.PtrString(n.Content)),
-		ContentType: r.toText(r.PtrString(string(n.ContentType))),
-		IsPublic:    r.toBool(n.IsPublic),
-		Annotations: r.toRawJSON(n.Annotations),
-		Tags:        r.toRawJSON(n.Tags),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return r.mapToNote(row), nil
+func scanNote(row pgx.Row) (noteRow, error) {
+	var n noteRow
+	err := row.Scan(
+		&n.ID,
+		&n.UserID,
+		&n.SourceID,
+		&n.Content,
+		&n.ContentType,
+		&n.IsPublic,
+		&n.Annotations,
+		&n.Tags,
+		&n.CreatedAt,
+		&n.UpdatedAt,
+	)
+	return n, err
 }
 
-func (r *postgresRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	return r.db.Queries.DeleteNote(ctx, id)
-}
-
-func (r *postgresRepository) CountByUser(ctx context.Context, userID uuid.UUID) (int64, error) {
-	return r.db.Queries.CountNotesByUser(ctx, userID)
-}
-
-func (r *postgresRepository) mapToNote(row db.Note) *Note {
+func (r *postgresRepository) mapRow(row noteRow) *Note {
 	var annotations []string
-	if row.Annotations != nil {
-		json.Unmarshal(row.Annotations, &annotations)
+	if len(row.Annotations) > 0 {
+		_ = json.Unmarshal(row.Annotations, &annotations)
 	}
-
 	var tags []string
-	if row.Tags != nil {
-		json.Unmarshal(row.Tags, &tags)
+	if len(row.Tags) > 0 {
+		_ = json.Unmarshal(row.Tags, &tags)
 	}
 
 	return &Note{
-		ID:          row.ID,
-		UserID:      row.UserID,
-		SourceID:    r.fromUUID(row.SourceID),
+		ID:          uuid.UUID(row.ID.Bytes),
+		UserID:      uuid.UUID(row.UserID.Bytes),
+		SourceID:    uuidPtr(row.SourceID),
 		Content:     row.Content,
 		ContentType: ContentType(row.ContentType),
-		IsPublic:    row.IsPublic.Bool,
+		IsPublic:    row.IsPublic,
 		Annotations: annotations,
 		Tags:        tags,
-		CreatedAt:   row.CreatedAt.Time,
-		UpdatedAt:   row.UpdatedAt.Time,
+		CreatedAt:   row.CreatedAt,
+		UpdatedAt:   row.UpdatedAt,
 	}
 }
 
-// Helper methods for pgtype conversions
-func (r *postgresRepository) toText(s *string) pgtype.Text {
-	if s == nil {
-		return pgtype.Text{Valid: false}
-	}
-	return pgtype.Text{String: *s, Valid: true}
-}
-
-func (r *postgresRepository) fromText(t pgtype.Text) *string {
-	if !t.Valid {
+func uuidPtr(value pgtype.UUID) *uuid.UUID {
+	if !value.Valid {
 		return nil
 	}
-	return &t.String
+	id := uuid.UUID(value.Bytes)
+	return &id
 }
 
-func (r *postgresRepository) toUUID(u *uuid.UUID) pgtype.UUID {
-	if u == nil {
-		return pgtype.UUID{Valid: false}
-	}
-	return pgtype.UUID{Bytes: *u, Valid: true}
-}
-
-func (r *postgresRepository) fromUUID(u pgtype.UUID) *uuid.UUID {
-	if !u.Valid {
+func nullableUUIDString(value *uuid.UUID) *string {
+	if value == nil {
 		return nil
 	}
-	res := uuid.UUID(u.Bytes)
-	return &res
-}
-
-func (r *postgresRepository) toBool(b bool) pgtype.Bool {
-	return pgtype.Bool{Bool: b, Valid: true}
-}
-
-func (r *postgresRepository) toRawJSON(data interface{}) []byte {
-	if data == nil {
-		return nil
-	}
-	b, _ := json.Marshal(data)
-	return b
-}
-
-func (r *postgresRepository) PtrString(s string) *string {
-	return &s
+	result := value.String()
+	return &result
 }

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"log/slog"
 
-	"github.com/google/uuid"
+	"github.com/gofrs/uuid/v5"
 )
 
 var (
