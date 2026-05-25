@@ -17,7 +17,7 @@ type Repository interface {
 	GetUserByID(ctx context.Context, id uuid.UUID) (*User, error)
 	CreateRefreshToken(ctx context.Context, token RefreshToken) error
 	GetRefreshToken(ctx context.Context, tokenHash []byte) (*RefreshToken, error)
-	RevokeRefreshToken(ctx context.Context, id uuid.UUID, replacedBy *uuid.UUID) error
+	RotateRefreshToken(ctx context.Context, rotation RefreshTokenRotation) error
 	RevokeRefreshTokenFamily(ctx context.Context, familyID uuid.UUID) error
 }
 
@@ -96,13 +96,34 @@ func (r *postgresRepository) GetRefreshToken(ctx context.Context, tokenHash []by
 	return &token, nil
 }
 
-func (r *postgresRepository) RevokeRefreshToken(ctx context.Context, id uuid.UUID, replacedBy *uuid.UUID) error {
-	_, err := r.db.Exec(ctx, `
+func (r *postgresRepository) RotateRefreshToken(ctx context.Context, rotation RefreshTokenRotation) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO refresh_tokens (id, user_id, token_hash, family_id, expires_at)
+		VALUES ($1, $2, $3, $4, $5)
+	`, rotation.NewToken.ID.String(), rotation.NewToken.UserID.String(), rotation.NewToken.TokenHash, rotation.NewToken.FamilyID.String(), rotation.NewToken.ExpiresAt)
+	if err != nil {
+		return err
+	}
+
+	result, err := tx.Exec(ctx, `
 		UPDATE refresh_tokens
-		SET revoked_at = COALESCE(revoked_at, $2), replaced_by_token_id = $3
-		WHERE id = $1
-	`, id.String(), time.Now().UTC(), uuidStringPtr(replacedBy))
-	return err
+		SET revoked_at = $2, replaced_by_token_id = $3
+		WHERE id = $1 AND revoked_at IS NULL
+	`, rotation.CurrentTokenID.String(), time.Now().UTC(), rotation.ReplacedByID.String())
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() != 1 {
+		return ErrInvalidRefresh
+	}
+
+	return tx.Commit(ctx)
 }
 
 func (r *postgresRepository) RevokeRefreshTokenFamily(ctx context.Context, familyID uuid.UUID) error {
@@ -120,12 +141,4 @@ func scanUser(row pgx.Row) (*User, error) {
 	}
 	user.ID = uuid.UUID(id.Bytes)
 	return &user, nil
-}
-
-func uuidStringPtr(id *uuid.UUID) *string {
-	if id == nil {
-		return nil
-	}
-	value := id.String()
-	return &value
 }

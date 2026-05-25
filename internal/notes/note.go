@@ -40,6 +40,8 @@ type Repository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*Note, error)
 	ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]*Note, error)
 	ListBySource(ctx context.Context, sourceID uuid.UUID, limit, offset int) ([]*Note, error)
+	ListPublicByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]*Note, error)
+	ListPublicBySource(ctx context.Context, sourceID uuid.UUID, limit, offset int) ([]*Note, error)
 	ListPublic(ctx context.Context, limit, offset int) ([]*Note, error)
 	Update(ctx context.Context, note *Note) (*Note, error)
 	Delete(ctx context.Context, id uuid.UUID) error

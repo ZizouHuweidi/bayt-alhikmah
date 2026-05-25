@@ -3,7 +3,9 @@ package auth
 import (
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gofrs/uuid/v5"
@@ -16,6 +18,7 @@ type Handler struct {
 	service      *Service
 	cookieSecure bool
 	logger       *slog.Logger
+	limiter      *rateLimiter
 }
 
 type registerRequest struct {
@@ -35,7 +38,7 @@ type authResponse struct {
 }
 
 func NewHandler(service *Service, cookieSecure bool, logger *slog.Logger) *Handler {
-	return &Handler{service: service, cookieSecure: cookieSecure, logger: logger}
+	return &Handler{service: service, cookieSecure: cookieSecure, logger: logger, limiter: newRateLimiter(10, time.Minute)}
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
@@ -49,6 +52,10 @@ func (h *Handler) RegisterProtectedRoutes(mux *http.ServeMux) {
 }
 
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
+	if !h.allowAuthAttempt(w, r, "register") {
+		return
+	}
+
 	var req registerRequest
 	if err := httpx.ReadJSON(r, &req); err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
@@ -72,6 +79,10 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
+	if !h.allowAuthAttempt(w, r, "login") {
+		return
+	}
+
 	var req loginRequest
 	if err := httpx.ReadJSON(r, &req); err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
@@ -95,6 +106,10 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
+	if !h.allowAuthAttempt(w, r, "refresh") {
+		return
+	}
+
 	cookie, err := r.Cookie(refreshCookieName)
 	if err != nil || cookie.Value == "" {
 		httpx.WriteError(w, http.StatusUnauthorized, "refresh token required")
@@ -163,11 +178,68 @@ func (h *Handler) setRefreshCookie(w http.ResponseWriter, token string) {
 		Path:     "/auth/refresh",
 		HttpOnly: true,
 		Secure:   h.cookieSecure,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		MaxAge:   int((30 * 24 * time.Hour).Seconds()),
 	})
 }
 
 func (h *Handler) clearRefreshCookie(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{Name: refreshCookieName, Path: "/auth/refresh", MaxAge: -1, HttpOnly: true, Secure: h.cookieSecure, SameSite: http.SameSiteLaxMode})
+	http.SetCookie(w, &http.Cookie{Name: refreshCookieName, Path: "/auth/refresh", MaxAge: -1, HttpOnly: true, Secure: h.cookieSecure, SameSite: http.SameSiteStrictMode})
+}
+
+func (h *Handler) allowAuthAttempt(w http.ResponseWriter, r *http.Request, action string) bool {
+	key := clientIP(r) + ":" + action
+	if h.limiter.allow(key) {
+		return true
+	}
+	httpx.WriteError(w, http.StatusTooManyRequests, "too many attempts")
+	return false
+}
+
+func clientIP(r *http.Request) string {
+	if forwardedFor := r.Header.Get("X-Forwarded-For"); forwardedFor != "" {
+		if host, _, err := net.SplitHostPort(forwardedFor); err == nil {
+			return host
+		}
+		return forwardedFor
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+type rateLimiter struct {
+	mu       sync.Mutex
+	limit    int
+	window   time.Duration
+	attempts map[string]rateLimitEntry
+}
+
+type rateLimitEntry struct {
+	count     int
+	resetTime time.Time
+}
+
+func newRateLimiter(limit int, window time.Duration) *rateLimiter {
+	return &rateLimiter{limit: limit, window: window, attempts: make(map[string]rateLimitEntry)}
+}
+
+func (l *rateLimiter) allow(key string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	now := time.Now()
+	entry := l.attempts[key]
+	if now.After(entry.resetTime) {
+		l.attempts[key] = rateLimitEntry{count: 1, resetTime: now.Add(l.window)}
+		return true
+	}
+	if entry.count >= l.limit {
+		return false
+	}
+	entry.count++
+	l.attempts[key] = entry
+	return true
 }

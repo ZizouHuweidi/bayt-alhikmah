@@ -92,6 +92,28 @@ func (s *Service) ListBySource(ctx context.Context, sourceID uuid.UUID, limit, o
 	return s.repo.ListBySource(ctx, sourceID, limit, offset)
 }
 
+func (s *Service) ListPublicByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]*Note, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	return s.repo.ListPublicByUser(ctx, userID, limit, offset)
+}
+
+func (s *Service) ListPublicBySource(ctx context.Context, sourceID uuid.UUID, limit, offset int) ([]*Note, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	return s.repo.ListPublicBySource(ctx, sourceID, limit, offset)
+}
+
 // ListPublic retrieves public notes
 func (s *Service) ListPublic(ctx context.Context, limit, offset int) ([]*Note, error) {
 	if limit <= 0 {

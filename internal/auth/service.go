@@ -121,16 +121,18 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (AuthTokens,
 	if err != nil {
 		return AuthTokens{}, err
 	}
-	if err := s.repo.CreateRefreshToken(ctx, RefreshToken{
+	newToken := RefreshToken{
 		ID:        newID,
 		UserID:    user.ID,
 		TokenHash: newHash,
 		FamilyID:  existing.FamilyID,
 		ExpiresAt: time.Now().UTC().Add(s.refreshTTL),
-	}); err != nil {
-		return AuthTokens{}, err
 	}
-	if err := s.repo.RevokeRefreshToken(ctx, existing.ID, &newID); err != nil {
+	if err := s.repo.RotateRefreshToken(ctx, RefreshTokenRotation{
+		CurrentTokenID: existing.ID,
+		NewToken:       newToken,
+		ReplacedByID:   newID,
+	}); err != nil {
 		return AuthTokens{}, err
 	}
 

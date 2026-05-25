@@ -1,22 +1,26 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
 // Config holds all configuration for the service
 type Config struct {
-	Server   ServerConfig
-	Database DatabaseConfig
-	Auth     AuthConfig
+	Environment string
+	Server      ServerConfig
+	Database    DatabaseConfig
+	Auth        AuthConfig
 }
 
 type ServerConfig struct {
-	Port         string
-	ReadTimeout  time.Duration
-	WriteTimeout time.Duration
+	Port               string
+	ReadTimeout        time.Duration
+	WriteTimeout       time.Duration
+	CORSAllowedOrigins []string
 }
 
 type DatabaseConfig struct {
@@ -35,29 +39,64 @@ type AuthConfig struct {
 	CookieSecure         bool
 }
 
-// Load reads configuration from environment variables
-func Load() *Config {
+// Load reads configuration from environment variables.
+func Load() (*Config, error) {
+	readTimeout, err := getDurationEnv("SERVER_READ_TIMEOUT", 30*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	writeTimeout, err := getDurationEnv("SERVER_WRITE_TIMEOUT", 30*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	maxOpenConns, err := getIntEnv("DB_MAX_OPEN_CONNS", 25)
+	if err != nil {
+		return nil, err
+	}
+	maxIdleConns, err := getIntEnv("DB_MAX_IDLE_CONNS", 5)
+	if err != nil {
+		return nil, err
+	}
+	connMaxLifetime, err := getDurationEnv("DB_CONN_MAX_LIFETIME", 5*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+	accessTokenLifetime, err := getDurationEnv("AUTH_ACCESS_TOKEN_LIFETIME", 15*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+	refreshTokenLifetime, err := getDurationEnv("AUTH_REFRESH_TOKEN_LIFETIME", 720*time.Hour)
+	if err != nil {
+		return nil, err
+	}
+	cookieSecure, err := getBoolEnv("AUTH_COOKIE_SECURE", false)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Config{
+		Environment: getEnv("ENVIRONMENT", "development"),
 		Server: ServerConfig{
-			Port:         getEnv("PORT", "8080"),
-			ReadTimeout:  getDurationEnv("SERVER_READ_TIMEOUT", 30*time.Second),
-			WriteTimeout: getDurationEnv("SERVER_WRITE_TIMEOUT", 30*time.Second),
+			Port:               getEnv("PORT", "8080"),
+			ReadTimeout:        readTimeout,
+			WriteTimeout:       writeTimeout,
+			CORSAllowedOrigins: getEnvSlice("CORS_ALLOWED_ORIGINS", []string{"http://localhost:3000"}),
 		},
 		Database: DatabaseConfig{
 			URL:             getEnv("DATABASE_URL", "postgres://maktaba:maktaba@localhost:5432/maktaba?sslmode=disable"),
-			MaxOpenConns:    getIntEnv("DB_MAX_OPEN_CONNS", 25),
-			MaxIdleConns:    getIntEnv("DB_MAX_IDLE_CONNS", 5),
-			ConnMaxLifetime: getDurationEnv("DB_CONN_MAX_LIFETIME", 5*time.Minute),
+			MaxOpenConns:    maxOpenConns,
+			MaxIdleConns:    maxIdleConns,
+			ConnMaxLifetime: connMaxLifetime,
 		},
 		Auth: AuthConfig{
 			Issuer:               getEnv("AUTH_ISSUER", "bayt-alhikmah"),
 			Audience:             getEnv("AUTH_AUDIENCE", "bayt-alhikmah-api"),
 			Ed25519PrivateKey:    getEnv("AUTH_ED25519_PRIVATE_KEY", ""),
-			AccessTokenLifetime:  getDurationEnv("AUTH_ACCESS_TOKEN_LIFETIME", 15*time.Minute),
-			RefreshTokenLifetime: getDurationEnv("AUTH_REFRESH_TOKEN_LIFETIME", 720*time.Hour),
-			CookieSecure:         getBoolEnv("AUTH_COOKIE_SECURE", false),
+			AccessTokenLifetime:  accessTokenLifetime,
+			RefreshTokenLifetime: refreshTokenLifetime,
+			CookieSecure:         cookieSecure,
 		},
-	}
+	}, nil
 }
 
 func getEnv(key, defaultValue string) string {
@@ -67,36 +106,50 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
-func getIntEnv(key string, defaultValue int) int {
+func getIntEnv(key string, defaultValue int) (int, error) {
 	if value := os.Getenv(key); value != "" {
-		if intVal, err := strconv.Atoi(value); err == nil {
-			return intVal
+		intVal, err := strconv.Atoi(value)
+		if err != nil {
+			return 0, fmt.Errorf("invalid %s: %w", key, err)
 		}
+		return intVal, nil
 	}
-	return defaultValue
+	return defaultValue, nil
 }
 
-func getDurationEnv(key string, defaultValue time.Duration) time.Duration {
+func getDurationEnv(key string, defaultValue time.Duration) (time.Duration, error) {
 	if value := os.Getenv(key); value != "" {
-		if d, err := time.ParseDuration(value); err == nil {
-			return d
+		d, err := time.ParseDuration(value)
+		if err != nil {
+			return 0, fmt.Errorf("invalid %s: %w", key, err)
 		}
+		return d, nil
 	}
-	return defaultValue
+	return defaultValue, nil
 }
 
-func getBoolEnv(key string, defaultValue bool) bool {
+func getBoolEnv(key string, defaultValue bool) (bool, error) {
 	if value := os.Getenv(key); value != "" {
-		if boolVal, err := strconv.ParseBool(value); err == nil {
-			return boolVal
+		boolVal, err := strconv.ParseBool(value)
+		if err != nil {
+			return false, fmt.Errorf("invalid %s: %w", key, err)
 		}
+		return boolVal, nil
 	}
-	return defaultValue
+	return defaultValue, nil
 }
 
 func getEnvSlice(key string, defaultValue []string) []string {
 	if value := os.Getenv(key); value != "" {
-		return []string{value}
+		parts := strings.Split(value, ",")
+		result := make([]string, 0, len(parts))
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if part != "" {
+				result = append(result, part)
+			}
+		}
+		return result
 	}
 	return defaultValue
 }

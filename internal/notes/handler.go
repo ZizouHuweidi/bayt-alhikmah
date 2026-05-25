@@ -123,14 +123,14 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusBadRequest, "invalid user_id")
 			return
 		}
-		result, err = h.service.ListByUser(r.Context(), userID, limit, offset)
+		result, err = h.service.ListPublicByUser(r.Context(), userID, limit, offset)
 	} else if sourceIDStr != "" {
 		sourceID, parseErr := uuid.FromString(sourceIDStr)
 		if parseErr != nil {
 			httpx.WriteError(w, http.StatusBadRequest, "invalid source_id")
 			return
 		}
-		result, err = h.service.ListBySource(r.Context(), sourceID, limit, offset)
+		result, err = h.service.ListPublicBySource(r.Context(), sourceID, limit, offset)
 	} else if publicOnly {
 		result, err = h.service.ListPublic(r.Context(), limit, offset)
 	} else {
@@ -142,13 +142,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	publicNotes := make([]*Note, 0, len(result))
-	for _, note := range result {
-		if note.IsPublic {
-			publicNotes = append(publicNotes, note)
-		}
-	}
-	httpx.WriteJSON(w, http.StatusOK, publicNotes)
+	httpx.WriteJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {

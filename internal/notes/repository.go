@@ -100,6 +100,32 @@ func (r *postgresRepository) ListBySource(ctx context.Context, sourceID uuid.UUI
 	return r.scanRows(rows)
 }
 
+func (r *postgresRepository) ListPublicByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]*Note, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT id, user_id, source_id, content, content_type, is_public, annotations, tags, created_at, updated_at
+		FROM notes WHERE user_id = $1 AND is_public = true ORDER BY created_at DESC LIMIT $2 OFFSET $3
+	`, userID.String(), limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return r.scanRows(rows)
+}
+
+func (r *postgresRepository) ListPublicBySource(ctx context.Context, sourceID uuid.UUID, limit, offset int) ([]*Note, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT id, user_id, source_id, content, content_type, is_public, annotations, tags, created_at, updated_at
+		FROM notes WHERE source_id = $1 AND is_public = true ORDER BY created_at DESC LIMIT $2 OFFSET $3
+	`, sourceID.String(), limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return r.scanRows(rows)
+}
+
 func (r *postgresRepository) ListPublic(ctx context.Context, limit, offset int) ([]*Note, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT id, user_id, source_id, content, content_type, is_public, annotations, tags, created_at, updated_at

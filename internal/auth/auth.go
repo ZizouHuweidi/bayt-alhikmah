@@ -30,6 +30,12 @@ type RefreshToken struct {
 	CreatedAt time.Time  `db:"created_at"`
 }
 
+type RefreshTokenRotation struct {
+	CurrentTokenID uuid.UUID
+	NewToken       RefreshToken
+	ReplacedByID   uuid.UUID
+}
+
 func ContextWithUserID(ctx context.Context, userID uuid.UUID) context.Context {
 	return context.WithValue(ctx, userIDContextKey, userID)
 }

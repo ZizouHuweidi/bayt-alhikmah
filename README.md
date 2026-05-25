@@ -10,6 +10,7 @@ The current implementation is a Go platform service plus a React frontend. The b
 - Standard library `net/http` router
 - PostgreSQL using native `pgx`/`pgxpool`
 - Goose SQL migrations in `migrations/`, run through `cmd/migrate`
+- Server construction and middleware live in `internal/server`
 - UUID v7 generated in Go for primary keys
 - Argon2id password hashing
 - Ed25519/EdDSA JWT access tokens
