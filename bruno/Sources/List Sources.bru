@@ -1,0 +1,11 @@
+meta {
+  name: List Sources
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/sources?limit=20&offset=0
+  body: none
+  auth: none
+}

@@ -51,6 +51,18 @@ The current implementation is a Go platform service plus a React frontend. The b
 - `just db-shell` - Open psql inside the Postgres container
 - `just frontend-dev` - Start the frontend dev server
 
+## API Docs
+
+The repo includes a Bruno collection in `bruno/` for local API exploration.
+
+1. Open the `bruno/` directory in Bruno.
+2. Select the `local` environment.
+3. Run `Auth/Register` or `Auth/Login`.
+4. Copy `tokens.access_token` from the response into the `access_token` environment variable.
+5. Use the protected `Sources` and `Notes` requests.
+
+The collection documents the current auth, source, and note endpoints. Refresh uses the `bh_refresh_token` HttpOnly cookie returned by register/login.
+
 ## API Endpoints
 
 Auth:

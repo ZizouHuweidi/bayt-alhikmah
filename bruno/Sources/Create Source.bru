@@ -1,0 +1,31 @@
+meta {
+  name: Create Source
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{base_url}}/api/sources
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "title": "The House of Wisdom",
+    "subtitle": "How Arabic Science Saved Ancient Knowledge and Gave Us the Renaissance",
+    "type": "book",
+    "description": "A book about the transmission of knowledge through the Islamic Golden Age.",
+    "publisher": "Penguin",
+    "isbn": "9780143120568",
+    "tags": ["history", "science", "islamic-golden-age"]
+  }
+}

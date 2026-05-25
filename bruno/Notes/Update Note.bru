@@ -1,0 +1,27 @@
+meta {
+  name: Update Note
+  type: http
+  seq: 5
+}
+
+put {
+  url: {{base_url}}/api/notes/{{note_id}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "content": "Updated reflection.",
+    "is_public": true,
+    "tags": ["updated"]
+  }
+}

@@ -1,0 +1,11 @@
+meta {
+  name: List Public Notes
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/notes?public=true&limit=20&offset=0
+  body: none
+  auth: none
+}

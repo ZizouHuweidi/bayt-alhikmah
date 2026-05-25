@@ -1,0 +1,11 @@
+meta {
+  name: List Public Notes By Source
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{base_url}}/notes?source_id={{source_id}}&limit=20&offset=0
+  body: none
+  auth: none
+}

@@ -1,0 +1,26 @@
+meta {
+  name: Update Source
+  type: http
+  seq: 5
+}
+
+put {
+  url: {{base_url}}/api/sources/{{source_id}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "description": "Updated source description.",
+    "tags": ["history", "knowledge"]
+  }
+}

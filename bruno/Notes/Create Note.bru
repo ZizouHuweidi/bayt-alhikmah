@@ -1,0 +1,30 @@
+meta {
+  name: Create Note
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{base_url}}/api/notes
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "source_id": "{{source_id}}",
+    "content": "A short reflection on this source.",
+    "content_type": "reflection",
+    "is_public": true,
+    "annotations": [],
+    "tags": ["reflection"]
+  }
+}
