@@ -89,6 +89,7 @@ type Repository interface {
 	Create(ctx context.Context, source *Source) (*Source, error)
 	CreateBook(ctx context.Context, params CreateBookParams) (*Book, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*Source, error)
+	GetBookByID(ctx context.Context, id uuid.UUID) (*Book, error)
 	List(ctx context.Context, limit, offset int) ([]*Source, error)
 	ListByType(ctx context.Context, sourceType SourceType, limit, offset int) ([]*Source, error)
 	Update(ctx context.Context, source *Source) (*Source, error)

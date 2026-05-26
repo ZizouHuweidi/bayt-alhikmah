@@ -77,6 +77,14 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusConflict, "review already exists for source")
 		return
 	}
+	if errors.Is(err, ErrSourceNotFound) {
+		httpx.WriteError(w, http.StatusNotFound, "source not found")
+		return
+	}
+	if errors.Is(err, ErrReviewConflict) {
+		httpx.WriteError(w, http.StatusConflict, "review conflict")
+		return
+	}
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "failed to create review")
 		return

@@ -43,6 +43,7 @@ func (h *Handler) RegisterPublicRoutes(mux *http.ServeMux) {
 
 func (h *Handler) RegisterProtectedRoutes(mux *http.ServeMux, middleware func(http.Handler) http.Handler) {
 	mux.Handle("POST /api/notes", middleware(http.HandlerFunc(h.Create)))
+	mux.Handle("GET /api/notes", middleware(http.HandlerFunc(h.ListMine)))
 	mux.Handle("PUT /api/notes/{id}", middleware(http.HandlerFunc(h.Update)))
 	mux.Handle("DELETE /api/notes/{id}", middleware(http.HandlerFunc(h.Delete)))
 }
@@ -76,6 +77,10 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	})
 	if errors.Is(err, ErrInvalidNote) {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid note")
+		return
+	}
+	if errors.Is(err, ErrSourceNotFound) {
+		httpx.WriteError(w, http.StatusNotFound, "source not found")
 		return
 	}
 	if err != nil {
@@ -143,6 +148,23 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpx.WriteJSON(w, http.StatusOK, result)
+}
+
+func (h *Handler) ListMine(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	limit, offset := httpx.Pagination(r)
+
+	notes, err := h.service.ListByUser(r.Context(), userID, limit, offset)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to list notes")
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, notes)
 }
 
 func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {

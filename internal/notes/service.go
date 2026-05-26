@@ -9,8 +9,9 @@ import (
 )
 
 var (
-	ErrNoteNotFound = errors.New("note not found")
-	ErrInvalidNote  = errors.New("invalid note data")
+	ErrNoteNotFound   = errors.New("note not found")
+	ErrInvalidNote    = errors.New("invalid note data")
+	ErrSourceNotFound = errors.New("source not found")
 )
 
 // Service provides business logic for notes

@@ -73,6 +73,10 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid collection")
 		return
 	}
+	if errors.Is(err, ErrSourceNotFound) {
+		httpx.WriteError(w, http.StatusNotFound, "source not found")
+		return
+	}
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "failed to create collection")
 		return
@@ -186,6 +190,10 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	})
 	if errors.Is(err, ErrInvalidCollection) {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid collection")
+		return
+	}
+	if errors.Is(err, ErrSourceNotFound) {
+		httpx.WriteError(w, http.StatusNotFound, "source not found")
 		return
 	}
 	if err != nil {

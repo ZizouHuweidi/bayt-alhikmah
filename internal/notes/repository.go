@@ -8,6 +8,7 @@ import (
 
 	"github.com/gofrs/uuid/v5"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/zizouhuweidi/maktaba/internal/db"
 )
@@ -53,10 +54,21 @@ func (r *postgresRepository) Create(ctx context.Context, n *Note) (*Note, error)
 		RETURNING id, user_id, source_id, content, content_type, is_public, annotations, tags, created_at, updated_at
 	`, id.String(), n.UserID.String(), nullableUUIDString(n.SourceID), n.Content, string(n.ContentType), n.IsPublic, annotations, tags))
 	if err != nil {
-		return nil, err
+		return nil, mapCreateError(err)
 	}
 
 	return r.mapRow(row), nil
+}
+
+func mapCreateError(err error) error {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return err
+	}
+	if pgErr.Code == "23503" && pgErr.ConstraintName == "notes_source_id_fkey" {
+		return ErrSourceNotFound
+	}
+	return err
 }
 
 func (r *postgresRepository) GetByID(ctx context.Context, id uuid.UUID) (*Note, error) {

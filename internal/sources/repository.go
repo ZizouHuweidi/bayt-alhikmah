@@ -170,6 +170,37 @@ func (r *postgresRepository) GetByID(ctx context.Context, id uuid.UUID) (*Source
 	return r.mapRow(row), nil
 }
 
+func (r *postgresRepository) GetBookByID(ctx context.Context, id uuid.UUID) (*Book, error) {
+	sourceRow, err := scanSource(r.db.QueryRow(ctx, `
+		SELECT id, title, subtitle, type, description, author_id, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
+		FROM sources WHERE id = $1 AND type = 'book' LIMIT 1
+	`, id.String()))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	metadataRow, err := scanBookMetadata(r.db.QueryRow(ctx, `
+		SELECT source_id, isbn_10, isbn_13, publisher, page_count, language, cover_url, created_at, updated_at
+		FROM book_metadata WHERE source_id = $1 LIMIT 1
+	`, id.String()))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return &Book{Source: r.mapRow(sourceRow)}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	contributors, err := r.listContributors(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Book{Source: r.mapRow(sourceRow), Metadata: mapBookMetadata(metadataRow), Contributors: contributors}, nil
+}
+
 func (r *postgresRepository) List(ctx context.Context, limit, offset int) ([]*Source, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT id, title, subtitle, type, description, author_id, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
@@ -241,6 +272,33 @@ func (r *postgresRepository) Count(ctx context.Context) (int64, error) {
 	var count int64
 	err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM sources`).Scan(&count)
 	return count, err
+}
+
+func (r *postgresRepository) listContributors(ctx context.Context, sourceID uuid.UUID) ([]*Contributor, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT c.id, c.name, sc.role, sc.position, c.created_at, c.updated_at
+		FROM source_contributors sc
+		JOIN contributors c ON c.id = sc.contributor_id
+		WHERE sc.source_id = $1
+		ORDER BY sc.position ASC, c.name ASC
+	`, sourceID.String())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	contributors := []*Contributor{}
+	for rows.Next() {
+		row, err := scanContributor(rows)
+		if err != nil {
+			return nil, err
+		}
+		contributors = append(contributors, mapContributor(row))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return contributors, nil
 }
 
 func (r *postgresRepository) scanRows(rows pgx.Rows) ([]*Source, error) {

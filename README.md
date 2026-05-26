@@ -48,7 +48,9 @@ The current implementation is a Go platform service plus a React frontend. The b
 - `just migrate-down` - Roll back database migration
 - `just migrate-status` - Show Goose migration status
 - `just migrate-create name` - Create a new Goose SQL migration
+- `just seed` - Seed local demo data (`demo@example.com` / `password12345`)
 - `just db-shell` - Open psql inside the Postgres container
+- `just health` - Check service liveness endpoint
 - `just frontend-dev` - Start the frontend dev server
 
 ## API Docs
@@ -64,6 +66,11 @@ The repo includes a Bruno collection in `bruno/` for local API exploration.
 The collection documents the current auth, source, book, library, and note endpoints. Refresh uses the `bh_refresh_token` HttpOnly cookie returned by register/login.
 
 ## API Endpoints
+
+Health:
+
+- `GET /health` - Liveness endpoint
+- `GET /ready` - Readiness endpoint that verifies database connectivity
 
 Auth:
 
@@ -85,6 +92,7 @@ Sources:
 - `GET /sources` - List public sources
 - `GET /sources/search?q={query}` - Search sources by title
 - `GET /sources/{id}` - Get source by ID
+- `GET /sources/books/{id}` - Get book source with book metadata and contributors
 - `PUT /api/sources/{id}` - Update source
 - `DELETE /api/sources/{id}` - Delete source
 
@@ -92,10 +100,12 @@ Library:
 
 - `POST /api/library/items` - Add a source to the authenticated user's library
 - `GET /api/library/items` - List authenticated user's library items
+- `GET /api/library/items/with-sources` - List authenticated user's library items with source summaries
 - `GET /api/library/items/{id}` - Get own library item by ID
 - `PUT /api/library/items/{id}` - Update own library item status/progress/visibility
 - `DELETE /api/library/items/{id}` - Remove own library item
-- `GET /users/{user_id}/library` - List public library items for a user
+- `GET /users/{user}/library` - List public library items for a user by username or user ID
+- `GET /users/{user}/library/with-sources` - List public library items with source summaries by username
 
 Collections:
 
@@ -109,6 +119,7 @@ Collections:
 Notes:
 
 - `POST /api/notes` - Create authenticated user's note
+- `GET /api/notes` - List authenticated user's notes
 - `GET /notes?public=true` - List public notes
 - `GET /notes?source_id={id}` - List public notes for a source
 - `GET /notes/{id}` - Get a public note by ID

@@ -49,11 +49,28 @@ type Item struct {
 	UpdatedAt     time.Time     `json:"updated_at"`
 }
 
+type SourceSummary struct {
+	ID        uuid.UUID `json:"id"`
+	Title     string    `json:"title"`
+	Subtitle  *string   `json:"subtitle,omitempty"`
+	Type      string    `json:"type"`
+	Publisher *string   `json:"publisher,omitempty"`
+	ISBN      *string   `json:"isbn,omitempty"`
+}
+
+type ItemWithSource struct {
+	*Item
+	Source *SourceSummary `json:"source"`
+}
+
 type Repository interface {
 	Create(ctx context.Context, item *Item) (*Item, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*Item, error)
 	ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]*Item, error)
 	ListPublicByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]*Item, error)
+	ListPublicByUsername(ctx context.Context, username string, limit, offset int) ([]*Item, error)
+	ListByUserWithSources(ctx context.Context, userID uuid.UUID, limit, offset int) ([]*ItemWithSource, error)
+	ListPublicByUsernameWithSources(ctx context.Context, username string, limit, offset int) ([]*ItemWithSource, error)
 	Update(ctx context.Context, item *Item) (*Item, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 }

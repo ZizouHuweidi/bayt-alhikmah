@@ -65,6 +65,7 @@ type CreateBookRequest struct {
 func (h *Handler) RegisterPublicRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /sources", h.List)
 	mux.HandleFunc("GET /sources/search", h.Search)
+	mux.HandleFunc("GET /sources/books/{id}", h.GetBookByID)
 	mux.HandleFunc("GET /sources/{id}", h.GetByID)
 }
 
@@ -157,12 +158,35 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusNotFound, "source not found")
 		return
 	}
+	if errors.Is(err, ErrInvalidSource) {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid source")
+		return
+	}
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "failed to get source")
 		return
 	}
 
 	httpx.WriteJSON(w, http.StatusOK, source)
+}
+
+func (h *Handler) GetBookByID(w http.ResponseWriter, r *http.Request) {
+	id, ok := parsePathUUID(w, r, "id", "source ID")
+	if !ok {
+		return
+	}
+
+	book, err := h.service.GetBookByID(r.Context(), id)
+	if errors.Is(err, ErrSourceNotFound) {
+		httpx.WriteError(w, http.StatusNotFound, "book not found")
+		return
+	}
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to get book")
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, book)
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {

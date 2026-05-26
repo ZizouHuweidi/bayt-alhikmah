@@ -32,6 +32,10 @@ func NewPostgresRepository(d *db.DB) Repository {
 }
 
 func (r *postgresRepository) Create(ctx context.Context, collection *Collection) (*Collection, error) {
+	if err := r.validateSourceIDs(ctx, collection.SourceIDs); err != nil {
+		return nil, err
+	}
+
 	id, err := uuid.NewV7()
 	if err != nil {
 		return nil, err
@@ -95,6 +99,10 @@ func (r *postgresRepository) ListPublicByUser(ctx context.Context, userID uuid.U
 }
 
 func (r *postgresRepository) Update(ctx context.Context, collection *Collection) (*Collection, error) {
+	if err := r.validateSourceIDs(ctx, collection.SourceIDs); err != nil {
+		return nil, err
+	}
+
 	sourceIDs, err := json.Marshal(collection.SourceIDs)
 	if err != nil {
 		return nil, err
@@ -119,6 +127,20 @@ func (r *postgresRepository) Update(ctx context.Context, collection *Collection)
 func (r *postgresRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	_, err := r.db.Exec(ctx, `DELETE FROM collections WHERE id = $1`, id.String())
 	return err
+}
+
+func (r *postgresRepository) validateSourceIDs(ctx context.Context, sourceIDs []uuid.UUID) error {
+	for _, sourceID := range sourceIDs {
+		var exists bool
+		err := r.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM sources WHERE id = $1)`, sourceID.String()).Scan(&exists)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return ErrSourceNotFound
+		}
+	}
+	return nil
 }
 
 func scanRows(rows pgx.Rows) ([]*Collection, error) {

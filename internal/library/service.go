@@ -9,8 +9,12 @@ import (
 )
 
 var (
-	ErrItemNotFound = errors.New("library item not found")
-	ErrInvalidItem  = errors.New("invalid library item")
+	ErrItemNotFound    = errors.New("library item not found")
+	ErrInvalidItem     = errors.New("invalid library item")
+	ErrInvalidUser     = errors.New("invalid user")
+	ErrItemExists      = errors.New("library item already exists")
+	ErrSourceNotFound  = errors.New("source not found")
+	ErrLibraryConflict = errors.New("library item conflict")
 )
 
 type Service struct {
@@ -68,9 +72,30 @@ func (s *Service) ListByUser(ctx context.Context, userID uuid.UUID, limit, offse
 	return s.repo.ListByUser(ctx, userID, limit, offset)
 }
 
+func (s *Service) ListByUserWithSources(ctx context.Context, userID uuid.UUID, limit, offset int) ([]*ItemWithSource, error) {
+	limit, offset = normalizePagination(limit, offset)
+	return s.repo.ListByUserWithSources(ctx, userID, limit, offset)
+}
+
 func (s *Service) ListPublicByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]*Item, error) {
 	limit, offset = normalizePagination(limit, offset)
 	return s.repo.ListPublicByUser(ctx, userID, limit, offset)
+}
+
+func (s *Service) ListPublicByUsername(ctx context.Context, username string, limit, offset int) ([]*Item, error) {
+	if username == "" {
+		return nil, ErrInvalidUser
+	}
+	limit, offset = normalizePagination(limit, offset)
+	return s.repo.ListPublicByUsername(ctx, username, limit, offset)
+}
+
+func (s *Service) ListPublicByUsernameWithSources(ctx context.Context, username string, limit, offset int) ([]*ItemWithSource, error) {
+	if username == "" {
+		return nil, ErrInvalidUser
+	}
+	limit, offset = normalizePagination(limit, offset)
+	return s.repo.ListPublicByUsernameWithSources(ctx, username, limit, offset)
 }
 
 func (s *Service) Update(ctx context.Context, id uuid.UUID, params UpdateItemParams) (*Item, error) {

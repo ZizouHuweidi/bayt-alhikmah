@@ -44,6 +44,9 @@ migrate-status:
 migrate-create name:
     go run ./cmd/migrate create {{name}}
 
+seed:
+    go run ./cmd/seed
+
 db-shell:
     {{compose}} exec postgres psql -U maktaba -d maktaba
 

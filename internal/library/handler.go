@@ -40,12 +40,14 @@ func NewHandler(service *Service, logger *slog.Logger) *Handler {
 }
 
 func (h *Handler) RegisterPublicRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /users/{user_id}/library", h.ListPublicByUser)
+	mux.HandleFunc("GET /users/{user}/library", h.ListPublicLibrary)
+	mux.HandleFunc("GET /users/{user}/library/with-sources", h.ListPublicLibraryWithSources)
 }
 
 func (h *Handler) RegisterProtectedRoutes(mux *http.ServeMux, middleware func(http.Handler) http.Handler) {
 	mux.Handle("POST /api/library/items", middleware(http.HandlerFunc(h.Create)))
 	mux.Handle("GET /api/library/items", middleware(http.HandlerFunc(h.ListMine)))
+	mux.Handle("GET /api/library/items/with-sources", middleware(http.HandlerFunc(h.ListMineWithSources)))
 	mux.Handle("GET /api/library/items/{id}", middleware(http.HandlerFunc(h.GetMine)))
 	mux.Handle("PUT /api/library/items/{id}", middleware(http.HandlerFunc(h.Update)))
 	mux.Handle("DELETE /api/library/items/{id}", middleware(http.HandlerFunc(h.Delete)))
@@ -87,6 +89,18 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid library item")
 		return
 	}
+	if errors.Is(err, ErrSourceNotFound) {
+		httpx.WriteError(w, http.StatusNotFound, "source not found")
+		return
+	}
+	if errors.Is(err, ErrItemExists) {
+		httpx.WriteError(w, http.StatusConflict, "source already exists in library")
+		return
+	}
+	if errors.Is(err, ErrLibraryConflict) {
+		httpx.WriteError(w, http.StatusConflict, "library item conflict")
+		return
+	}
 	if err != nil {
 		h.logger.Error("failed to create library item", "error", err)
 		httpx.WriteError(w, http.StatusInternalServerError, "failed to create library item")
@@ -104,6 +118,21 @@ func (h *Handler) ListMine(w http.ResponseWriter, r *http.Request) {
 	}
 	limit, offset := httpx.Pagination(r)
 	items, err := h.service.ListByUser(r.Context(), userID, limit, offset)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to list library items")
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, items)
+}
+
+func (h *Handler) ListMineWithSources(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	limit, offset := httpx.Pagination(r)
+	items, err := h.service.ListByUserWithSources(r.Context(), userID, limit, offset)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "failed to list library items")
 		return
@@ -187,14 +216,40 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Handler) ListPublicByUser(w http.ResponseWriter, r *http.Request) {
-	userID, err := uuid.FromString(r.PathValue("user_id"))
-	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid user ID")
+func (h *Handler) ListPublicLibrary(w http.ResponseWriter, r *http.Request) {
+	limit, offset := httpx.Pagination(r)
+	user := r.PathValue("user")
+
+	userID, err := uuid.FromString(user)
+	if err == nil {
+		items, err := h.service.ListPublicByUser(r.Context(), userID, limit, offset)
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to list public library items")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, items)
 		return
 	}
+
+	items, err := h.service.ListPublicByUsername(r.Context(), user, limit, offset)
+	if errors.Is(err, ErrInvalidUser) {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid username")
+		return
+	}
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to list public library items")
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, items)
+}
+
+func (h *Handler) ListPublicLibraryWithSources(w http.ResponseWriter, r *http.Request) {
 	limit, offset := httpx.Pagination(r)
-	items, err := h.service.ListPublicByUser(r.Context(), userID, limit, offset)
+	items, err := h.service.ListPublicByUsernameWithSources(r.Context(), r.PathValue("user"), limit, offset)
+	if errors.Is(err, ErrInvalidUser) {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid username")
+		return
+	}
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "failed to list public library items")
 		return

@@ -7,6 +7,7 @@ import (
 
 	"github.com/gofrs/uuid/v5"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/zizouhuweidi/maktaba/internal/db"
 )
@@ -29,6 +30,15 @@ type itemRow struct {
 	UpdatedAt     time.Time
 }
 
+type itemWithSourceRow struct {
+	Item            itemRow
+	SourceTitle     string
+	SourceSubtitle  pgtype.Text
+	SourceType      string
+	SourcePublisher pgtype.Text
+	SourceISBN      pgtype.Text
+}
+
 func NewPostgresRepository(d *db.DB) Repository {
 	return &postgresRepository{db: d}
 }
@@ -45,9 +55,27 @@ func (r *postgresRepository) Create(ctx context.Context, item *Item) (*Item, err
 		RETURNING id, user_id, source_id, status, progress_value, progress_unit, visibility, started_at, completed_at, created_at, updated_at
 	`, id.String(), item.UserID.String(), item.SourceID.String(), string(item.Status), item.ProgressValue, progressUnitString(item.ProgressUnit), string(item.Visibility), item.StartedAt, item.CompletedAt))
 	if err != nil {
-		return nil, err
+		return nil, mapCreateError(err)
 	}
 	return mapRow(row), nil
+}
+
+func mapCreateError(err error) error {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return err
+	}
+	switch pgErr.Code {
+	case "23505":
+		return ErrItemExists
+	case "23503":
+		if pgErr.ConstraintName == "user_library_items_source_id_fkey" {
+			return ErrSourceNotFound
+		}
+		return ErrLibraryConflict
+	default:
+		return err
+	}
 }
 
 func (r *postgresRepository) GetByID(ctx context.Context, id uuid.UUID) (*Item, error) {
@@ -88,6 +116,54 @@ func (r *postgresRepository) ListPublicByUser(ctx context.Context, userID uuid.U
 	return scanItems(rows)
 }
 
+func (r *postgresRepository) ListPublicByUsername(ctx context.Context, username string, limit, offset int) ([]*Item, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT uli.id, uli.user_id, uli.source_id, uli.status, uli.progress_value, uli.progress_unit, uli.visibility, uli.started_at, uli.completed_at, uli.created_at, uli.updated_at
+		FROM user_library_items uli
+		JOIN users u ON u.id = uli.user_id
+		WHERE u.username = $1 AND uli.visibility = 'public'
+		ORDER BY uli.created_at DESC LIMIT $2 OFFSET $3
+	`, username, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanItems(rows)
+}
+
+func (r *postgresRepository) ListByUserWithSources(ctx context.Context, userID uuid.UUID, limit, offset int) ([]*ItemWithSource, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT uli.id, uli.user_id, uli.source_id, uli.status, uli.progress_value, uli.progress_unit, uli.visibility, uli.started_at, uli.completed_at, uli.created_at, uli.updated_at,
+		       s.title, s.subtitle, s.type, s.publisher, s.isbn
+		FROM user_library_items uli
+		JOIN sources s ON s.id = uli.source_id
+		WHERE uli.user_id = $1
+		ORDER BY uli.created_at DESC LIMIT $2 OFFSET $3
+	`, userID.String(), limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanItemsWithSources(rows)
+}
+
+func (r *postgresRepository) ListPublicByUsernameWithSources(ctx context.Context, username string, limit, offset int) ([]*ItemWithSource, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT uli.id, uli.user_id, uli.source_id, uli.status, uli.progress_value, uli.progress_unit, uli.visibility, uli.started_at, uli.completed_at, uli.created_at, uli.updated_at,
+		       s.title, s.subtitle, s.type, s.publisher, s.isbn
+		FROM user_library_items uli
+		JOIN users u ON u.id = uli.user_id
+		JOIN sources s ON s.id = uli.source_id
+		WHERE u.username = $1 AND uli.visibility = 'public'
+		ORDER BY uli.created_at DESC LIMIT $2 OFFSET $3
+	`, username, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanItemsWithSources(rows)
+}
+
 func (r *postgresRepository) Update(ctx context.Context, item *Item) (*Item, error) {
 	row, err := scanItem(r.db.QueryRow(ctx, `
 		UPDATE user_library_items
@@ -124,6 +200,32 @@ func scanItems(rows pgx.Rows) ([]*Item, error) {
 	return items, nil
 }
 
+func scanItemsWithSources(rows pgx.Rows) ([]*ItemWithSource, error) {
+	var items []*ItemWithSource
+	for rows.Next() {
+		row, err := scanItemWithSource(rows)
+		if err != nil {
+			return nil, err
+		}
+		item := mapRow(row.Item)
+		items = append(items, &ItemWithSource{
+			Item: item,
+			Source: &SourceSummary{
+				ID:        item.SourceID,
+				Title:     row.SourceTitle,
+				Subtitle:  stringPtr(row.SourceSubtitle),
+				Type:      row.SourceType,
+				Publisher: stringPtr(row.SourcePublisher),
+				ISBN:      stringPtr(row.SourceISBN),
+			},
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 func scanItem(row pgx.Row) (itemRow, error) {
 	var item itemRow
 	err := row.Scan(
@@ -138,6 +240,29 @@ func scanItem(row pgx.Row) (itemRow, error) {
 		&item.CompletedAt,
 		&item.CreatedAt,
 		&item.UpdatedAt,
+	)
+	return item, err
+}
+
+func scanItemWithSource(row pgx.Row) (itemWithSourceRow, error) {
+	var item itemWithSourceRow
+	err := row.Scan(
+		&item.Item.ID,
+		&item.Item.UserID,
+		&item.Item.SourceID,
+		&item.Item.Status,
+		&item.Item.ProgressValue,
+		&item.Item.ProgressUnit,
+		&item.Item.Visibility,
+		&item.Item.StartedAt,
+		&item.Item.CompletedAt,
+		&item.Item.CreatedAt,
+		&item.Item.UpdatedAt,
+		&item.SourceTitle,
+		&item.SourceSubtitle,
+		&item.SourceType,
+		&item.SourcePublisher,
+		&item.SourceISBN,
 	)
 	return item, err
 }
@@ -187,4 +312,11 @@ func timePtr(value pgtype.Timestamptz) *time.Time {
 		return nil
 	}
 	return &value.Time
+}
+
+func stringPtr(value pgtype.Text) *string {
+	if !value.Valid {
+		return nil
+	}
+	return &value.String
 }

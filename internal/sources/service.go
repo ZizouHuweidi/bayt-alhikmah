@@ -29,7 +29,7 @@ func NewService(repo Repository, logger *slog.Logger) *Service {
 
 // Create creates a new source
 func (s *Service) Create(ctx context.Context, params CreateSourceParams) (*Source, error) {
-	if params.Title == "" {
+	if params.Title == "" || !validSourceType(params.Type) {
 		return nil, ErrInvalidSource
 	}
 
@@ -93,6 +93,19 @@ func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (*Source, error) {
 	return source, nil
 }
 
+func (s *Service) GetBookByID(ctx context.Context, id uuid.UUID) (*Book, error) {
+	book, err := s.repo.GetBookByID(ctx, id)
+	if err != nil {
+		s.logger.Error("failed to get book", "error", err, "id", id)
+		return nil, err
+	}
+	if book == nil {
+		return nil, ErrSourceNotFound
+	}
+
+	return book, nil
+}
+
 // List retrieves a paginated list of sources
 func (s *Service) List(ctx context.Context, limit, offset int) ([]*Source, error) {
 	if limit <= 0 {
@@ -135,6 +148,9 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, params UpdateSourceP
 		existing.Subtitle = params.Subtitle
 	}
 	if params.Type != nil {
+		if !validSourceType(*params.Type) {
+			return nil, ErrInvalidSource
+		}
 		existing.Type = *params.Type
 	}
 	if params.Description != nil {
@@ -196,4 +212,13 @@ func (s *Service) Search(ctx context.Context, query string, limit, offset int) (
 	}
 
 	return s.repo.Search(ctx, query, limit, offset)
+}
+
+func validSourceType(sourceType SourceType) bool {
+	switch sourceType {
+	case SourceTypeBook, SourceTypePaper, SourceTypePodcast, SourceTypeVideo, SourceTypeArticle, SourceTypeEssay:
+		return true
+	default:
+		return false
+	}
 }

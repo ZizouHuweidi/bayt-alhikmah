@@ -51,6 +51,7 @@ func New(cfg *config.Config, database *db.DB, logger *slog.Logger) (*http.Server
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", health.Handler)
+	mux.HandleFunc("GET /ready", health.ReadyHandler(database))
 	authHndlr.RegisterRoutes(mux)
 	authHndlr.RegisterProtectedRoutes(mux)
 	collectionHndlr.RegisterPublicRoutes(mux)

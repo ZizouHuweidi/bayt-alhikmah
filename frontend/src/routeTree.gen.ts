@@ -16,6 +16,8 @@ import { Route as RecoveryRouteImport } from './routes/recovery'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as UsersUsernameProfileRouteImport } from './routes/users.$username.profile'
+import { Route as SourcesBooksIdRouteImport } from './routes/sources.books.$id'
 
 const VerificationRoute = VerificationRouteImport.update({
   id: '/verification',
@@ -52,6 +54,16 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const UsersUsernameProfileRoute = UsersUsernameProfileRouteImport.update({
+  id: '/users/$username/profile',
+  path: '/users/$username/profile',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SourcesBooksIdRoute = SourcesBooksIdRouteImport.update({
+  id: '/sources/books/$id',
+  path: '/sources/books/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -61,6 +73,8 @@ export interface FileRoutesByFullPath {
   '/registration': typeof RegistrationRoute
   '/settings': typeof SettingsRoute
   '/verification': typeof VerificationRoute
+  '/sources/books/$id': typeof SourcesBooksIdRoute
+  '/users/$username/profile': typeof UsersUsernameProfileRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -70,6 +84,8 @@ export interface FileRoutesByTo {
   '/registration': typeof RegistrationRoute
   '/settings': typeof SettingsRoute
   '/verification': typeof VerificationRoute
+  '/sources/books/$id': typeof SourcesBooksIdRoute
+  '/users/$username/profile': typeof UsersUsernameProfileRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -80,6 +96,8 @@ export interface FileRoutesById {
   '/registration': typeof RegistrationRoute
   '/settings': typeof SettingsRoute
   '/verification': typeof VerificationRoute
+  '/sources/books/$id': typeof SourcesBooksIdRoute
+  '/users/$username/profile': typeof UsersUsernameProfileRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -91,6 +109,8 @@ export interface FileRouteTypes {
     | '/registration'
     | '/settings'
     | '/verification'
+    | '/sources/books/$id'
+    | '/users/$username/profile'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -100,6 +120,8 @@ export interface FileRouteTypes {
     | '/registration'
     | '/settings'
     | '/verification'
+    | '/sources/books/$id'
+    | '/users/$username/profile'
   id:
     | '__root__'
     | '/'
@@ -109,6 +131,8 @@ export interface FileRouteTypes {
     | '/registration'
     | '/settings'
     | '/verification'
+    | '/sources/books/$id'
+    | '/users/$username/profile'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -119,6 +143,8 @@ export interface RootRouteChildren {
   RegistrationRoute: typeof RegistrationRoute
   SettingsRoute: typeof SettingsRoute
   VerificationRoute: typeof VerificationRoute
+  SourcesBooksIdRoute: typeof SourcesBooksIdRoute
+  UsersUsernameProfileRoute: typeof UsersUsernameProfileRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -172,6 +198,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/users/$username/profile': {
+      id: '/users/$username/profile'
+      path: '/users/$username/profile'
+      fullPath: '/users/$username/profile'
+      preLoaderRoute: typeof UsersUsernameProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sources/books/$id': {
+      id: '/sources/books/$id'
+      path: '/sources/books/$id'
+      fullPath: '/sources/books/$id'
+      preLoaderRoute: typeof SourcesBooksIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -183,6 +223,8 @@ const rootRouteChildren: RootRouteChildren = {
   RegistrationRoute: RegistrationRoute,
   SettingsRoute: SettingsRoute,
   VerificationRoute: VerificationRoute,
+  SourcesBooksIdRoute: SourcesBooksIdRoute,
+  UsersUsernameProfileRoute: UsersUsernameProfileRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

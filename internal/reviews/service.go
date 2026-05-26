@@ -12,6 +12,8 @@ var (
 	ErrReviewNotFound = errors.New("review not found")
 	ErrInvalidReview  = errors.New("invalid review data")
 	ErrReviewExists   = errors.New("review already exists")
+	ErrSourceNotFound = errors.New("source not found")
+	ErrReviewConflict = errors.New("review conflict")
 )
 
 type Service struct {

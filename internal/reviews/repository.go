@@ -43,14 +43,28 @@ func (r *postgresRepository) Create(ctx context.Context, review *Review) (*Revie
 		RETURNING id, user_id, source_id, rating, content, is_public, created_at, updated_at
 	`, id.String(), review.UserID.String(), review.SourceID.String(), review.Rating, review.Content, review.IsPublic))
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return nil, ErrReviewExists
-		}
-		return nil, err
+		return nil, mapCreateError(err)
 	}
 
 	return mapRow(row), nil
+}
+
+func mapCreateError(err error) error {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return err
+	}
+	switch pgErr.Code {
+	case "23505":
+		return ErrReviewExists
+	case "23503":
+		if pgErr.ConstraintName == "reviews_source_id_fkey" {
+			return ErrSourceNotFound
+		}
+		return ErrReviewConflict
+	default:
+		return err
+	}
 }
 
 func (r *postgresRepository) GetByID(ctx context.Context, id uuid.UUID) (*Review, error) {

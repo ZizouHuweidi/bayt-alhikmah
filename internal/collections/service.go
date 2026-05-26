@@ -11,6 +11,7 @@ import (
 var (
 	ErrCollectionNotFound = errors.New("collection not found")
 	ErrInvalidCollection  = errors.New("invalid collection data")
+	ErrSourceNotFound     = errors.New("source not found")
 )
 
 type Service struct {
