@@ -38,7 +38,6 @@ func (s *Service) Create(ctx context.Context, params CreateSourceParams) (*Sourc
 		Subtitle:    params.Subtitle,
 		Type:        params.Type,
 		Description: params.Description,
-		AuthorID:    params.AuthorID,
 		Publisher:   params.Publisher,
 		ISBN:        params.ISBN,
 		DOI:         params.DOI,
@@ -155,9 +154,6 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, params UpdateSourceP
 	}
 	if params.Description != nil {
 		existing.Description = params.Description
-	}
-	if params.AuthorID != nil {
-		existing.AuthorID = params.AuthorID
 	}
 	if params.Publisher != nil {
 		existing.Publisher = params.Publisher

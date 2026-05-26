@@ -28,7 +28,6 @@ type Source struct {
 	Subtitle    *string    `json:"subtitle,omitempty" db:"subtitle"`
 	Type        SourceType `json:"type" db:"type"`
 	Description *string    `json:"description,omitempty" db:"description"`
-	AuthorID    *uuid.UUID `json:"author_id,omitempty" db:"author_id"`
 	Publisher   *string    `json:"publisher,omitempty" db:"publisher"`
 	ISBN        *string    `json:"isbn,omitempty" db:"isbn"`
 	DOI         *string    `json:"doi,omitempty" db:"doi"`
@@ -65,16 +64,6 @@ type Book struct {
 	Source       *Source        `json:"source"`
 	Metadata     *BookMetadata  `json:"metadata"`
 	Contributors []*Contributor `json:"contributors,omitempty"`
-}
-
-// Author represents a source author
-type Author struct {
-	ID        uuid.UUID `json:"id"`
-	Name      string    `json:"name"`
-	Bio       *string   `json:"bio,omitempty"`
-	BirthDate *string   `json:"birth_date,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // Tag represents a taxonomy tag
@@ -126,7 +115,6 @@ type CreateSourceParams struct {
 	Subtitle    *string
 	Type        SourceType
 	Description *string
-	AuthorID    *uuid.UUID
 	Publisher   *string
 	ISBN        *string
 	DOI         *string
@@ -142,7 +130,6 @@ type UpdateSourceParams struct {
 	Subtitle    *string
 	Type        *SourceType
 	Description *string
-	AuthorID    *uuid.UUID
 	Publisher   *string
 	ISBN        *string
 	DOI         *string

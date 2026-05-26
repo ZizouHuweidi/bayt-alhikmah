@@ -23,7 +23,6 @@ type CreateRequest struct {
 	Subtitle    *string  `json:"subtitle,omitempty"`
 	Type        string   `json:"type"`
 	Description *string  `json:"description,omitempty"`
-	AuthorID    *string  `json:"author_id,omitempty"`
 	Publisher   *string  `json:"publisher,omitempty"`
 	ISBN        *string  `json:"isbn,omitempty"`
 	DOI         *string  `json:"doi,omitempty"`
@@ -37,7 +36,6 @@ type UpdateRequest struct {
 	Subtitle    *string  `json:"subtitle,omitempty"`
 	Type        *string  `json:"type,omitempty"`
 	Description *string  `json:"description,omitempty"`
-	AuthorID    *string  `json:"author_id,omitempty"`
 	Publisher   *string  `json:"publisher,omitempty"`
 	ISBN        *string  `json:"isbn,omitempty"`
 	DOI         *string  `json:"doi,omitempty"`
@@ -83,17 +81,11 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	authorID, ok := parseOptionalUUID(w, req.AuthorID, "author_id")
-	if !ok {
-		return
-	}
-
 	source, err := h.service.Create(r.Context(), CreateSourceParams{
 		Title:       req.Title,
 		Subtitle:    req.Subtitle,
 		Type:        SourceType(req.Type),
 		Description: req.Description,
-		AuthorID:    authorID,
 		Publisher:   req.Publisher,
 		ISBN:        req.ISBN,
 		DOI:         req.DOI,
@@ -237,10 +229,6 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	authorID, ok := parseOptionalUUID(w, req.AuthorID, "author_id")
-	if !ok {
-		return
-	}
 	var sourceType *SourceType
 	if req.Type != nil {
 		st := SourceType(*req.Type)
@@ -252,7 +240,6 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		Subtitle:    req.Subtitle,
 		Type:        sourceType,
 		Description: req.Description,
-		AuthorID:    authorID,
 		Publisher:   req.Publisher,
 		ISBN:        req.ISBN,
 		DOI:         req.DOI,

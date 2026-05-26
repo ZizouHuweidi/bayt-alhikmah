@@ -22,7 +22,6 @@ type sourceRow struct {
 	Subtitle    pgtype.Text
 	Type        string
 	Description pgtype.Text
-	AuthorID    pgtype.UUID
 	Publisher   pgtype.Text
 	ISBN        pgtype.Text
 	DOI         pgtype.Text
@@ -70,10 +69,10 @@ func (r *postgresRepository) Create(ctx context.Context, s *Source) (*Source, er
 	}
 
 	row, err := scanSource(r.db.QueryRow(ctx, `
-		INSERT INTO sources (id, title, subtitle, type, description, author_id, publisher, isbn, doi, url, external_id, tags, published_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-		RETURNING id, title, subtitle, type, description, author_id, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
-	`, id.String(), s.Title, s.Subtitle, string(s.Type), s.Description, nullableUUIDString(s.AuthorID), s.Publisher, s.ISBN, s.DOI, s.URL, s.ExternalID, tags, s.PublishedAt))
+		INSERT INTO sources (id, title, subtitle, type, description, publisher, isbn, doi, url, external_id, tags, published_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		RETURNING id, title, subtitle, type, description, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
+	`, id.String(), s.Title, s.Subtitle, string(s.Type), s.Description, s.Publisher, s.ISBN, s.DOI, s.URL, s.ExternalID, tags, s.PublishedAt))
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +99,7 @@ func (r *postgresRepository) CreateBook(ctx context.Context, params CreateBookPa
 	sourceRow, err := scanSource(tx.QueryRow(ctx, `
 		INSERT INTO sources (id, title, subtitle, type, description, publisher, isbn, url, external_id, tags, published_at)
 		VALUES ($1, $2, $3, 'book', $4, $5, COALESCE($6, $7), $8, $9, $10, $11)
-		RETURNING id, title, subtitle, type, description, author_id, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
+		RETURNING id, title, subtitle, type, description, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
 	`, sourceID.String(), params.Title, params.Subtitle, params.Description, params.Publisher, params.ISBN13, params.ISBN10, params.URL, params.ExternalID, tags, params.PublishedAt))
 	if err != nil {
 		return nil, err
@@ -157,7 +156,7 @@ func (r *postgresRepository) CreateBook(ctx context.Context, params CreateBookPa
 
 func (r *postgresRepository) GetByID(ctx context.Context, id uuid.UUID) (*Source, error) {
 	row, err := scanSource(r.db.QueryRow(ctx, `
-		SELECT id, title, subtitle, type, description, author_id, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
+		SELECT id, title, subtitle, type, description, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
 		FROM sources WHERE id = $1 LIMIT 1
 	`, id.String()))
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -172,7 +171,7 @@ func (r *postgresRepository) GetByID(ctx context.Context, id uuid.UUID) (*Source
 
 func (r *postgresRepository) GetBookByID(ctx context.Context, id uuid.UUID) (*Book, error) {
 	sourceRow, err := scanSource(r.db.QueryRow(ctx, `
-		SELECT id, title, subtitle, type, description, author_id, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
+		SELECT id, title, subtitle, type, description, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
 		FROM sources WHERE id = $1 AND type = 'book' LIMIT 1
 	`, id.String()))
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -203,7 +202,7 @@ func (r *postgresRepository) GetBookByID(ctx context.Context, id uuid.UUID) (*Bo
 
 func (r *postgresRepository) List(ctx context.Context, limit, offset int) ([]*Source, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT id, title, subtitle, type, description, author_id, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
+		SELECT id, title, subtitle, type, description, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
 		FROM sources ORDER BY created_at DESC LIMIT $1 OFFSET $2
 	`, limit, offset)
 	if err != nil {
@@ -216,7 +215,7 @@ func (r *postgresRepository) List(ctx context.Context, limit, offset int) ([]*So
 
 func (r *postgresRepository) ListByType(ctx context.Context, sourceType SourceType, limit, offset int) ([]*Source, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT id, title, subtitle, type, description, author_id, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
+		SELECT id, title, subtitle, type, description, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
 		FROM sources WHERE type = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3
 	`, string(sourceType), limit, offset)
 	if err != nil {
@@ -235,11 +234,11 @@ func (r *postgresRepository) Update(ctx context.Context, s *Source) (*Source, er
 
 	row, err := scanSource(r.db.QueryRow(ctx, `
 		UPDATE sources
-		SET title = $2, subtitle = $3, type = $4, description = $5, author_id = $6, publisher = $7,
-			isbn = $8, doi = $9, url = $10, external_id = $11, tags = $12, published_at = $13, updated_at = NOW()
+		SET title = $2, subtitle = $3, type = $4, description = $5, publisher = $6,
+			isbn = $7, doi = $8, url = $9, external_id = $10, tags = $11, published_at = $12, updated_at = NOW()
 		WHERE id = $1
-		RETURNING id, title, subtitle, type, description, author_id, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
-	`, s.ID.String(), s.Title, s.Subtitle, string(s.Type), s.Description, nullableUUIDString(s.AuthorID), s.Publisher, s.ISBN, s.DOI, s.URL, s.ExternalID, tags, s.PublishedAt))
+		RETURNING id, title, subtitle, type, description, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
+	`, s.ID.String(), s.Title, s.Subtitle, string(s.Type), s.Description, s.Publisher, s.ISBN, s.DOI, s.URL, s.ExternalID, tags, s.PublishedAt))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -257,7 +256,7 @@ func (r *postgresRepository) Delete(ctx context.Context, id uuid.UUID) error {
 
 func (r *postgresRepository) Search(ctx context.Context, query string, limit, offset int) ([]*Source, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT id, title, subtitle, type, description, author_id, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
+		SELECT id, title, subtitle, type, description, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
 		FROM sources WHERE title ILIKE '%' || $1 || '%' ORDER BY created_at DESC LIMIT $2 OFFSET $3
 	`, query, limit, offset)
 	if err != nil {
@@ -324,7 +323,6 @@ func scanSource(row pgx.Row) (sourceRow, error) {
 		&s.Subtitle,
 		&s.Type,
 		&s.Description,
-		&s.AuthorID,
 		&s.Publisher,
 		&s.ISBN,
 		&s.DOI,
@@ -379,7 +377,6 @@ func (r *postgresRepository) mapRow(row sourceRow) *Source {
 		Subtitle:    stringPtr(row.Subtitle),
 		Type:        SourceType(row.Type),
 		Description: stringPtr(row.Description),
-		AuthorID:    uuidPtr(row.AuthorID),
 		Publisher:   stringPtr(row.Publisher),
 		ISBN:        stringPtr(row.ISBN),
 		DOI:         stringPtr(row.DOI),

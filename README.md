@@ -29,11 +29,39 @@ The current implementation is a Go platform service plus a React frontend. The b
 
 ## Getting Started
 
+Prerequisites: Go, Node/npm, Podman, Podman Compose, and `just`.
+
 1. Copy environment variables: `cp .env.example .env`
-2. Start services: `just up`
+2. Start database and app services: `just up`
 3. Run migrations: `just migrate`
-4. Run tests: `just test`
-5. Check health: `just health`
+4. Seed demo data: `just seed`
+5. Start the frontend: `just frontend-dev`
+6. Open the frontend at `http://localhost:3000`
+
+Demo login:
+
+- Email: `demo@example.com`
+- Password: `password12345`
+
+Local service URLs:
+
+- Frontend: `http://localhost:3000`
+- Backend: `http://localhost:8080`
+- Health: `http://localhost:8080/health`
+- Readiness: `http://localhost:8080/ready`
+
+Happy-path MVP smoke test:
+
+1. Login with the demo user.
+2. Create a book from the dashboard.
+3. Add an existing source to the library.
+4. Update library status and visibility.
+5. Create and delete a note.
+6. Create and delete a review.
+7. Create and delete a collection.
+8. Edit profile settings and enable the public profile.
+9. Open `/users/demo_reader/profile`.
+10. Open a book detail page from the dashboard.
 
 ## Useful Commands
 
@@ -52,6 +80,7 @@ The current implementation is a Go platform service plus a React frontend. The b
 - `just db-shell` - Open psql inside the Postgres container
 - `just health` - Check service liveness endpoint
 - `just frontend-dev` - Start the frontend dev server
+- `just frontend-build` - Build the frontend
 
 ## API Docs
 
@@ -63,7 +92,15 @@ The repo includes a Bruno collection in `bruno/` for local API exploration.
 4. Copy `tokens.access_token` from the response into the `access_token` environment variable.
 5. Use the protected `Sources`, `Library`, `Notes`, `Reviews`, and `Collections` requests.
 
-The collection documents the current auth, source, book, library, and note endpoints. Refresh uses the `bh_refresh_token` HttpOnly cookie returned by register/login.
+The collection documents the current auth, profile, source, book, library, note, review, and collection endpoints. Refresh uses the `bh_refresh_token` HttpOnly cookie returned by register/login.
+
+## Production Notes
+
+- Set `ENVIRONMENT=production` for production deployments.
+- `AUTH_ED25519_PRIVATE_KEY` is required in production and must be a base64 Ed25519 32-byte seed or 64-byte private key.
+- If `AUTH_ED25519_PRIVATE_KEY` is omitted in development, the server uses an ephemeral key and existing access tokens become invalid after restart.
+- Configure `CORS_ALLOWED_ORIGINS` with the deployed frontend origin.
+- `DATABASE_URL` should point to the production PostgreSQL database.
 
 ## API Endpoints
 

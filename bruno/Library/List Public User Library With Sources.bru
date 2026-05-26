@@ -1,0 +1,11 @@
+meta {
+  name: List Public User Library With Sources
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{base_url}}/users/{{username}}/library/with-sources?limit=20&offset=0
+  body: none
+  auth: none
+}

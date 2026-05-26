@@ -1,6 +1,7 @@
 set dotenv-load := true
 
 compose := "podman compose"
+database_url := env_var_or_default("DATABASE_URL", "postgres://maktaba:maktaba@localhost:5432/maktaba?sslmode=disable")
 
 default:
     just --list
@@ -33,19 +34,19 @@ tidy:
     go mod tidy
 
 migrate:
-    go run ./cmd/migrate up
+    DATABASE_URL='{{database_url}}' go run ./cmd/migrate up
 
 migrate-down:
-    go run ./cmd/migrate down
+    DATABASE_URL='{{database_url}}' go run ./cmd/migrate down
 
 migrate-status:
-    go run ./cmd/migrate status
+    DATABASE_URL='{{database_url}}' go run ./cmd/migrate status
 
 migrate-create name:
     go run ./cmd/migrate create {{name}}
 
 seed:
-    go run ./cmd/seed
+    DATABASE_URL='{{database_url}}' go run ./cmd/seed
 
 db-shell:
     {{compose}} exec postgres psql -U maktaba -d maktaba
