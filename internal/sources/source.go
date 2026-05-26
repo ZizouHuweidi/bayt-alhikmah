@@ -40,6 +40,33 @@ type Source struct {
 	UpdatedAt   time.Time  `json:"updated_at" db:"updated_at"`
 }
 
+type Contributor struct {
+	ID        uuid.UUID `json:"id"`
+	Name      string    `json:"name"`
+	Role      string    `json:"role"`
+	Position  int       `json:"position"`
+	CreatedAt time.Time `json:"created_at,omitempty"`
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
+}
+
+type BookMetadata struct {
+	SourceID  uuid.UUID `json:"source_id"`
+	ISBN10    *string   `json:"isbn_10,omitempty"`
+	ISBN13    *string   `json:"isbn_13,omitempty"`
+	Publisher *string   `json:"publisher,omitempty"`
+	PageCount *int      `json:"page_count,omitempty"`
+	Language  *string   `json:"language,omitempty"`
+	CoverURL  *string   `json:"cover_url,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type Book struct {
+	Source       *Source        `json:"source"`
+	Metadata     *BookMetadata  `json:"metadata"`
+	Contributors []*Contributor `json:"contributors,omitempty"`
+}
+
 // Author represents a source author
 type Author struct {
 	ID        uuid.UUID `json:"id"`
@@ -60,6 +87,7 @@ type Tag struct {
 // Repository defines the interface for source data access
 type Repository interface {
 	Create(ctx context.Context, source *Source) (*Source, error)
+	CreateBook(ctx context.Context, params CreateBookParams) (*Book, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*Source, error)
 	List(ctx context.Context, limit, offset int) ([]*Source, error)
 	ListByType(ctx context.Context, sourceType SourceType, limit, offset int) ([]*Source, error)
@@ -67,6 +95,28 @@ type Repository interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 	Search(ctx context.Context, query string, limit, offset int) ([]*Source, error)
 	Count(ctx context.Context) (int64, error)
+}
+
+type CreateBookParams struct {
+	Title        string
+	Subtitle     *string
+	Description  *string
+	URL          *string
+	ExternalID   *string
+	Tags         []string
+	PublishedAt  *time.Time
+	ISBN10       *string
+	ISBN13       *string
+	Publisher    *string
+	PageCount    *int
+	Language     *string
+	CoverURL     *string
+	Contributors []ContributorInput
+}
+
+type ContributorInput struct {
+	Name string
+	Role string
 }
 
 // CreateSourceParams contains parameters for creating a source

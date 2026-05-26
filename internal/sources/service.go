@@ -58,6 +58,26 @@ func (s *Service) Create(ctx context.Context, params CreateSourceParams) (*Sourc
 	return created, nil
 }
 
+func (s *Service) CreateBook(ctx context.Context, params CreateBookParams) (*Book, error) {
+	if params.Title == "" {
+		return nil, ErrInvalidSource
+	}
+	for _, contributor := range params.Contributors {
+		if contributor.Name == "" {
+			return nil, ErrInvalidSource
+		}
+	}
+
+	book, err := s.repo.CreateBook(ctx, params)
+	if err != nil {
+		s.logger.Error("failed to create book", "error", err)
+		return nil, err
+	}
+
+	s.logger.Info("book created", "id", book.Source.ID, "title", book.Source.Title)
+	return book, nil
+}
+
 // GetByID retrieves a source by ID
 func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (*Source, error) {
 	source, err := s.repo.GetByID(ctx, id)

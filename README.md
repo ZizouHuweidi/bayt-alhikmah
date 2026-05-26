@@ -59,9 +59,9 @@ The repo includes a Bruno collection in `bruno/` for local API exploration.
 2. Select the `local` environment.
 3. Run `Auth/Register` or `Auth/Login`.
 4. Copy `tokens.access_token` from the response into the `access_token` environment variable.
-5. Use the protected `Sources` and `Notes` requests.
+5. Use the protected `Sources`, `Library`, `Notes`, `Reviews`, and `Collections` requests.
 
-The collection documents the current auth, source, and note endpoints. Refresh uses the `bh_refresh_token` HttpOnly cookie returned by register/login.
+The collection documents the current auth, source, book, library, and note endpoints. Refresh uses the `bh_refresh_token` HttpOnly cookie returned by register/login.
 
 ## API Endpoints
 
@@ -72,14 +72,39 @@ Auth:
 - `POST /auth/refresh` - Rotate refresh token and issue a new access token
 - `GET /api/me` - Current authenticated user
 
+Profiles:
+
+- `GET /api/profile` - Get authenticated user's profile, creating an empty profile if needed
+- `PUT /api/profile` - Update authenticated user's profile
+- `GET /users/{username}/profile` - Get a public profile by username
+
 Sources:
 
 - `POST /api/sources` - Create source
+- `POST /api/sources/books` - Create book source with book metadata and contributors
 - `GET /sources` - List public sources
 - `GET /sources/search?q={query}` - Search sources by title
 - `GET /sources/{id}` - Get source by ID
 - `PUT /api/sources/{id}` - Update source
 - `DELETE /api/sources/{id}` - Delete source
+
+Library:
+
+- `POST /api/library/items` - Add a source to the authenticated user's library
+- `GET /api/library/items` - List authenticated user's library items
+- `GET /api/library/items/{id}` - Get own library item by ID
+- `PUT /api/library/items/{id}` - Update own library item status/progress/visibility
+- `DELETE /api/library/items/{id}` - Remove own library item
+- `GET /users/{user_id}/library` - List public library items for a user
+
+Collections:
+
+- `POST /api/collections` - Create authenticated user's collection
+- `GET /api/collections` - List authenticated user's collections
+- `GET /collections?user_id={id}` - List public collections for a user
+- `GET /collections/{id}` - Get a public collection by ID
+- `PUT /api/collections/{id}` - Update own collection
+- `DELETE /api/collections/{id}` - Delete own collection
 
 Notes:
 
@@ -89,6 +114,16 @@ Notes:
 - `GET /notes/{id}` - Get a public note by ID
 - `PUT /api/notes/{id}` - Update own note
 - `DELETE /api/notes/{id}` - Delete own note
+
+Reviews:
+
+- `POST /api/reviews` - Create authenticated user's source review
+- `GET /api/reviews` - List authenticated user's reviews
+- `GET /reviews?source_id={id}` - List public reviews for a source
+- `GET /reviews?user_id={id}` - List public reviews for a user
+- `GET /reviews/{id}` - Get a public review by ID
+- `PUT /api/reviews/{id}` - Update own review
+- `DELETE /api/reviews/{id}` - Delete own review
 
 Authenticated requests use an EdDSA JWT access token:
 

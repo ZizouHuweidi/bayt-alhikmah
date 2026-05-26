@@ -1,0 +1,28 @@
+meta {
+  name: Create Collection
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{base_url}}/api/collections
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "name": "Islamic Golden Age",
+    "description": "Books and notes about knowledge transmission.",
+    "is_public": true,
+    "source_ids": ["{{source_id}}"]
+  }
+}

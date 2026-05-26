@@ -46,6 +46,22 @@ type UpdateRequest struct {
 	Tags        []string `json:"tags,omitempty"`
 }
 
+type CreateBookRequest struct {
+	Title        string             `json:"title"`
+	Subtitle     *string            `json:"subtitle,omitempty"`
+	Description  *string            `json:"description,omitempty"`
+	URL          *string            `json:"url,omitempty"`
+	ExternalID   *string            `json:"external_id,omitempty"`
+	Tags         []string           `json:"tags,omitempty"`
+	ISBN10       *string            `json:"isbn_10,omitempty"`
+	ISBN13       *string            `json:"isbn_13,omitempty"`
+	Publisher    *string            `json:"publisher,omitempty"`
+	PageCount    *int               `json:"page_count,omitempty"`
+	Language     *string            `json:"language,omitempty"`
+	CoverURL     *string            `json:"cover_url,omitempty"`
+	Contributors []ContributorInput `json:"contributors,omitempty"`
+}
+
 func (h *Handler) RegisterPublicRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /sources", h.List)
 	mux.HandleFunc("GET /sources/search", h.Search)
@@ -54,6 +70,7 @@ func (h *Handler) RegisterPublicRoutes(mux *http.ServeMux) {
 
 func (h *Handler) RegisterProtectedRoutes(mux *http.ServeMux, middleware func(http.Handler) http.Handler) {
 	mux.Handle("POST /api/sources", middleware(http.HandlerFunc(h.Create)))
+	mux.Handle("POST /api/sources/books", middleware(http.HandlerFunc(h.CreateBook)))
 	mux.Handle("PUT /api/sources/{id}", middleware(http.HandlerFunc(h.Update)))
 	mux.Handle("DELETE /api/sources/{id}", middleware(http.HandlerFunc(h.Delete)))
 }
@@ -93,6 +110,40 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpx.WriteJSON(w, http.StatusCreated, source)
+}
+
+func (h *Handler) CreateBook(w http.ResponseWriter, r *http.Request) {
+	var req CreateBookRequest
+	if err := httpx.ReadJSON(r, &req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	book, err := h.service.CreateBook(r.Context(), CreateBookParams{
+		Title:        req.Title,
+		Subtitle:     req.Subtitle,
+		Description:  req.Description,
+		URL:          req.URL,
+		ExternalID:   req.ExternalID,
+		Tags:         req.Tags,
+		ISBN10:       req.ISBN10,
+		ISBN13:       req.ISBN13,
+		Publisher:    req.Publisher,
+		PageCount:    req.PageCount,
+		Language:     req.Language,
+		CoverURL:     req.CoverURL,
+		Contributors: req.Contributors,
+	})
+	if errors.Is(err, ErrInvalidSource) {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid book")
+		return
+	}
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to create book")
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusCreated, book)
 }
 
 func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {

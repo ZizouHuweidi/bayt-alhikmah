@@ -1,0 +1,11 @@
+meta {
+  name: List Public By User
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{base_url}}/reviews?user_id={{user_id}}
+  body: none
+  auth: none
+}

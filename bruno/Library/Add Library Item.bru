@@ -1,0 +1,27 @@
+meta {
+  name: Add Library Item
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{base_url}}/api/library/items
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "source_id": "{{source_id}}",
+    "status": "to_consume",
+    "visibility": "private"
+  }
+}

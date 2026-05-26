@@ -1,0 +1,15 @@
+meta {
+  name: Delete Library Item
+  type: http
+  seq: 5
+}
+
+delete {
+  url: {{base_url}}/api/library/items/{{library_item_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}

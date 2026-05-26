@@ -1,0 +1,28 @@
+meta {
+  name: Create Review
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{base_url}}/api/reviews
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "source_id": "{{source_id}}",
+    "rating": 5,
+    "content": "A useful and accessible entry point.",
+    "is_public": true
+  }
+}

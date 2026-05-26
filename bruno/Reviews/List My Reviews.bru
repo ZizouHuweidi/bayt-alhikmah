@@ -1,0 +1,15 @@
+meta {
+  name: List My Reviews
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{base_url}}/api/reviews
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}

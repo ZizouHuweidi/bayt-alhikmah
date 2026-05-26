@@ -1,0 +1,28 @@
+meta {
+  name: Update Collection
+  type: http
+  seq: 5
+}
+
+put {
+  url: {{base_url}}/api/collections/{{collection_id}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "name": "House of Wisdom Reading List",
+    "description": "Core sources for the topic.",
+    "is_public": true,
+    "source_ids": ["{{source_id}}"]
+  }
+}

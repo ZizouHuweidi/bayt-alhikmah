@@ -1,0 +1,11 @@
+meta {
+  name: List Public By Source
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{base_url}}/reviews?source_id={{source_id}}
+  body: none
+  auth: none
+}

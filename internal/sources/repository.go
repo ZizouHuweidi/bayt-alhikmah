@@ -34,6 +34,27 @@ type sourceRow struct {
 	UpdatedAt   time.Time
 }
 
+type bookMetadataRow struct {
+	SourceID  pgtype.UUID
+	ISBN10    pgtype.Text
+	ISBN13    pgtype.Text
+	Publisher pgtype.Text
+	PageCount pgtype.Int4
+	Language  pgtype.Text
+	CoverURL  pgtype.Text
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type contributorRow struct {
+	ID        pgtype.UUID
+	Name      string
+	Role      string
+	Position  int
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 func NewPostgresRepository(d *db.DB) Repository {
 	return &postgresRepository{db: d}
 }
@@ -58,6 +79,80 @@ func (r *postgresRepository) Create(ctx context.Context, s *Source) (*Source, er
 	}
 
 	return r.mapRow(row), nil
+}
+
+func (r *postgresRepository) CreateBook(ctx context.Context, params CreateBookParams) (*Book, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	sourceID, err := uuid.NewV7()
+	if err != nil {
+		return nil, err
+	}
+	tags, err := json.Marshal(params.Tags)
+	if err != nil {
+		return nil, err
+	}
+
+	sourceRow, err := scanSource(tx.QueryRow(ctx, `
+		INSERT INTO sources (id, title, subtitle, type, description, publisher, isbn, url, external_id, tags, published_at)
+		VALUES ($1, $2, $3, 'book', $4, $5, COALESCE($6, $7), $8, $9, $10, $11)
+		RETURNING id, title, subtitle, type, description, author_id, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
+	`, sourceID.String(), params.Title, params.Subtitle, params.Description, params.Publisher, params.ISBN13, params.ISBN10, params.URL, params.ExternalID, tags, params.PublishedAt))
+	if err != nil {
+		return nil, err
+	}
+
+	metadataRow, err := scanBookMetadata(tx.QueryRow(ctx, `
+		INSERT INTO book_metadata (source_id, isbn_10, isbn_13, publisher, page_count, language, cover_url)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING source_id, isbn_10, isbn_13, publisher, page_count, language, cover_url, created_at, updated_at
+	`, sourceID.String(), params.ISBN10, params.ISBN13, params.Publisher, params.PageCount, params.Language, params.CoverURL))
+	if err != nil {
+		return nil, err
+	}
+
+	contributors := make([]*Contributor, 0, len(params.Contributors))
+	for position, contributor := range params.Contributors {
+		role := contributor.Role
+		if role == "" {
+			role = "author"
+		}
+
+		contributorID, err := uuid.NewV7()
+		if err != nil {
+			return nil, err
+		}
+		var existingID pgtype.UUID
+		err = tx.QueryRow(ctx, `
+			INSERT INTO contributors (id, name)
+			VALUES ($1, $2)
+			ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+			RETURNING id
+		`, contributorID.String(), contributor.Name).Scan(&existingID)
+		if err != nil {
+			return nil, err
+		}
+
+		row, err := scanContributor(tx.QueryRow(ctx, `
+			INSERT INTO source_contributors (source_id, contributor_id, role, position)
+			VALUES ($1, $2, $3, $4)
+			RETURNING contributor_id, $5::text, role, position, NOW(), NOW()
+		`, sourceID.String(), uuid.UUID(existingID.Bytes).String(), role, position, contributor.Name))
+		if err != nil {
+			return nil, err
+		}
+		contributors = append(contributors, mapContributor(row))
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	return &Book{Source: r.mapRow(sourceRow), Metadata: mapBookMetadata(metadataRow), Contributors: contributors}, nil
 }
 
 func (r *postgresRepository) GetByID(ctx context.Context, id uuid.UUID) (*Source, error) {
@@ -185,6 +280,35 @@ func scanSource(row pgx.Row) (sourceRow, error) {
 	return s, err
 }
 
+func scanBookMetadata(row pgx.Row) (bookMetadataRow, error) {
+	var metadata bookMetadataRow
+	err := row.Scan(
+		&metadata.SourceID,
+		&metadata.ISBN10,
+		&metadata.ISBN13,
+		&metadata.Publisher,
+		&metadata.PageCount,
+		&metadata.Language,
+		&metadata.CoverURL,
+		&metadata.CreatedAt,
+		&metadata.UpdatedAt,
+	)
+	return metadata, err
+}
+
+func scanContributor(row pgx.Row) (contributorRow, error) {
+	var contributor contributorRow
+	err := row.Scan(
+		&contributor.ID,
+		&contributor.Name,
+		&contributor.Role,
+		&contributor.Position,
+		&contributor.CreatedAt,
+		&contributor.UpdatedAt,
+	)
+	return contributor, err
+}
+
 func (r *postgresRepository) mapRow(row sourceRow) *Source {
 	var tags []string
 	if len(row.Tags) > 0 {
@@ -215,6 +339,39 @@ func stringPtr(value pgtype.Text) *string {
 		return nil
 	}
 	return &value.String
+}
+
+func intPtr(value pgtype.Int4) *int {
+	if !value.Valid {
+		return nil
+	}
+	result := int(value.Int32)
+	return &result
+}
+
+func mapBookMetadata(row bookMetadataRow) *BookMetadata {
+	return &BookMetadata{
+		SourceID:  uuid.UUID(row.SourceID.Bytes),
+		ISBN10:    stringPtr(row.ISBN10),
+		ISBN13:    stringPtr(row.ISBN13),
+		Publisher: stringPtr(row.Publisher),
+		PageCount: intPtr(row.PageCount),
+		Language:  stringPtr(row.Language),
+		CoverURL:  stringPtr(row.CoverURL),
+		CreatedAt: row.CreatedAt,
+		UpdatedAt: row.UpdatedAt,
+	}
+}
+
+func mapContributor(row contributorRow) *Contributor {
+	return &Contributor{
+		ID:        uuid.UUID(row.ID.Bytes),
+		Name:      row.Name,
+		Role:      row.Role,
+		Position:  row.Position,
+		CreatedAt: row.CreatedAt,
+		UpdatedAt: row.UpdatedAt,
+	}
 }
 
 func uuidPtr(value pgtype.UUID) *uuid.UUID {
