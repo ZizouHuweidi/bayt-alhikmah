@@ -10,6 +10,18 @@ import {
 const API_URL = import.meta.env.VITE_MAKTABA_API_URL || "http://localhost:8080";
 const ACCESS_TOKEN_KEY = "bayt_access_token";
 
+export function accessTokenFromAuthResponse(data: unknown): string | null {
+	if (!data || typeof data !== "object") {
+		return null;
+	}
+	const tokens = (data as { tokens?: unknown }).tokens;
+	if (!tokens || typeof tokens !== "object") {
+		return null;
+	}
+	const accessToken = (tokens as { access_token?: unknown }).access_token;
+	return typeof accessToken === "string" && accessToken ? accessToken : null;
+}
+
 interface User {
 	id: string;
 	email?: string;
@@ -79,14 +91,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 	const refreshSession = useCallback(async () => {
 		setIsLoading(true);
+		let tokenAtStart: string | null = null;
 		try {
-			const currentToken =
+			tokenAtStart =
 				typeof window === "undefined"
 					? null
 					: localStorage.getItem(ACCESS_TOKEN_KEY);
-			if (currentToken) {
-				await fetchMe(currentToken);
-				storeAccessToken(currentToken);
+			if (tokenAtStart) {
+				await fetchMe(tokenAtStart);
+				storeAccessToken(tokenAtStart);
 				return;
 			}
 
@@ -98,9 +111,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				throw new Error("refresh failed");
 			}
 			const data = await response.json();
-			storeAccessToken(data.access_token);
-			await fetchMe(data.access_token);
+			const refreshedToken = accessTokenFromAuthResponse(data);
+			if (!refreshedToken) {
+				throw new Error("refresh response missing access token");
+			}
+			storeAccessToken(refreshedToken);
+			await fetchMe(refreshedToken);
 		} catch {
+			const latestToken =
+				typeof window === "undefined"
+					? null
+					: localStorage.getItem(ACCESS_TOKEN_KEY);
+			if (latestToken && latestToken !== tokenAtStart) {
+				return;
+			}
 			setIsAuthenticated(false);
 			setUser({ id: "" });
 			storeAccessToken(null);
@@ -129,6 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				firstName: data.user.username,
 			});
 			setIsAuthenticated(true);
+			setIsLoading(false);
 		},
 		[storeAccessToken],
 	);
@@ -153,6 +178,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				firstName: data.user.username,
 			});
 			setIsAuthenticated(true);
+			setIsLoading(false);
 		},
 		[storeAccessToken],
 	);

@@ -189,11 +189,11 @@ function LandingPage() {
 
       <section className="px-6 py-24">
         <div className="mx-auto max-w-4xl text-center">
-          <div className="rounded-3xl bg-gradient-to-br from-emerald-600 to-teal-700 p-12">
-            <h2 className="mb-4 text-3xl font-bold text-white">
+          <div className="rounded-3xl border border-emerald-100 bg-white p-12 shadow-sm">
+            <h2 className="mb-4 text-3xl font-bold text-slate-900">
               Ready to Build Your Library?
             </h2>
-            <p className="mb-8 text-lg text-emerald-100">
+            <p className="mb-8 text-lg text-slate-600">
               Join Bayt al Hikmah and start tracking your knowledge journey today.
             </p>
             {isAuthenticated ? (

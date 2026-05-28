@@ -106,20 +106,20 @@ function PublicProfilePage() {
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-10">
       <div className="mx-auto max-w-6xl">
-        <section className="mb-8 rounded-3xl bg-gradient-to-br from-emerald-700 to-teal-700 p-8 text-white shadow-lg">
+        <section className="mb-8 rounded-3xl border border-emerald-100 bg-white p-8 text-slate-900 shadow-sm">
           <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
             <div>
-              <p className="text-sm font-medium uppercase tracking-wide text-emerald-100">
+              <p className="text-sm font-medium uppercase tracking-wide text-emerald-700">
                 Public Knowledge Profile
               </p>
               <h1 className="mt-3 text-4xl font-bold">
                 {data.profile.display_name || data.profile.username || username}
               </h1>
               {data.profile.bio && (
-                <p className="mt-4 max-w-2xl text-emerald-50">{data.profile.bio}</p>
+                <p className="mt-4 max-w-2xl text-slate-600">{data.profile.bio}</p>
               )}
             </div>
-            <div className="rounded-2xl bg-white/10 px-4 py-3 text-sm text-emerald-50">
+            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
               @{data.profile.username || username}
             </div>
           </div>

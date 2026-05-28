@@ -41,6 +41,16 @@ const emptyData: DashboardData = {
   collections: [],
 }
 
+export function normalizeDashboardData(data: Partial<DashboardData>): DashboardData {
+  return {
+    sources: Array.isArray(data.sources) ? data.sources : [],
+    library: Array.isArray(data.library) ? data.library : [],
+    notes: Array.isArray(data.notes) ? data.notes : [],
+    reviews: Array.isArray(data.reviews) ? data.reviews : [],
+    collections: Array.isArray(data.collections) ? data.collections : [],
+  }
+}
+
 function DashboardPage() {
   const navigate = useNavigate()
   const { isAuthenticated, isLoading, user, accessToken, logout } = useAuth()
@@ -80,9 +90,10 @@ function DashboardPage() {
         listReviews(accessToken),
         listCollections(accessToken),
       ])
-      setData({ sources, library, notes, reviews, collections })
-      if (!selectedSourceID && library.length > 0) {
-        setSelectedSourceID(library[0].source_id)
+      const nextData = normalizeDashboardData({ sources, library, notes, reviews, collections })
+      setData(nextData)
+      if (!selectedSourceID && nextData.library.length > 0) {
+        setSelectedSourceID(nextData.library[0].source_id)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load dashboard')
@@ -220,8 +231,9 @@ function DashboardPage() {
     return null
   }
 
-  const librarySourceIDs = new Set(data.library.map(item => item.source_id))
-  const librarySources = data.library.map(item => ({ item, source: item.source }))
+  const safeData = normalizeDashboardData(data)
+  const librarySourceIDs = new Set(safeData.library.map(item => item.source_id))
+  const librarySources = safeData.library.map(item => ({ item, source: item.source }))
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -239,13 +251,13 @@ function DashboardPage() {
           </div>
         )}
 
-        <DashboardStats data={data} />
+        <DashboardStats data={safeData} />
 
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
           <div className="space-y-6">
             <LibraryPanel
               accessToken={accessToken}
-              items={data.library}
+              items={safeData.library}
               loading={loadingData}
               runAction={runAction}
             />
@@ -256,7 +268,7 @@ function DashboardPage() {
               loading={loadingData}
               onAdd={loadDashboard}
               onError={setError}
-              sources={data.sources}
+              sources={safeData.sources}
             />
           </div>
 
@@ -296,17 +308,17 @@ function DashboardPage() {
 
             <RecentNotesCard
               accessToken={accessToken}
-              notes={data.notes}
+              notes={safeData.notes}
               runAction={runAction}
             />
             <RecentReviewsCard
               accessToken={accessToken}
-              reviews={data.reviews}
+              reviews={safeData.reviews}
               runAction={runAction}
             />
             <CollectionsCard
               accessToken={accessToken}
-              collections={data.collections}
+              collections={safeData.collections}
               runAction={runAction}
             />
           </aside>
