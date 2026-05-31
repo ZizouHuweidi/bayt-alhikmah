@@ -80,7 +80,7 @@ func Load() (*Config, error) {
 			Port:               getEnv("PORT", "8080"),
 			ReadTimeout:        readTimeout,
 			WriteTimeout:       writeTimeout,
-			CORSAllowedOrigins: getEnvSlice("CORS_ALLOWED_ORIGINS", []string{"http://localhost:3000"}),
+			CORSAllowedOrigins: getEnvSlice("CORS_ALLOWED_ORIGINS", []string{"http://localhost:3000", "http://127.0.0.1:5173", "http://localhost:5173"}),
 		},
 		Database: DatabaseConfig{
 			URL:             getEnv("DATABASE_URL", "postgres://maktaba:maktaba@localhost:5432/maktaba?sslmode=disable"),

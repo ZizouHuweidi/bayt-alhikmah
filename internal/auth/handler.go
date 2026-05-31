@@ -32,6 +32,10 @@ type loginRequest struct {
 	Password string `json:"password"`
 }
 
+type refreshRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
 type authResponse struct {
 	User   *User      `json:"user"`
 	Tokens AuthTokens `json:"tokens"`
@@ -45,6 +49,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /auth/register", h.Register)
 	mux.HandleFunc("POST /auth/login", h.Login)
 	mux.HandleFunc("POST /auth/refresh", h.Refresh)
+	mux.HandleFunc("POST /auth/logout", h.Logout)
 }
 
 func (h *Handler) RegisterProtectedRoutes(mux *http.ServeMux) {
@@ -74,7 +79,6 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.setRefreshCookie(w, tokens.RefreshToken)
-	tokens.RefreshToken = ""
 	httpx.WriteJSON(w, http.StatusCreated, authResponse{User: user, Tokens: tokens})
 }
 
@@ -101,7 +105,6 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.setRefreshCookie(w, tokens.RefreshToken)
-	tokens.RefreshToken = ""
 	httpx.WriteJSON(w, http.StatusOK, authResponse{User: user, Tokens: tokens})
 }
 
@@ -110,13 +113,23 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cookie, err := r.Cookie(refreshCookieName)
-	if err != nil || cookie.Value == "" {
-		httpx.WriteError(w, http.StatusUnauthorized, "refresh token required")
-		return
+	var token string
+
+	// Accept refresh_token from request body (mobile native apps)
+	var req refreshRequest
+	if err := httpx.ReadJSON(r, &req); err == nil && req.RefreshToken != "" {
+		token = req.RefreshToken
+	} else {
+		// Fall back to cookie (web SPA — automatic browser behavior)
+		cookie, err := r.Cookie(refreshCookieName)
+		if err != nil || cookie.Value == "" {
+			httpx.WriteError(w, http.StatusUnauthorized, "refresh token required")
+			return
+		}
+		token = cookie.Value
 	}
 
-	tokens, err := h.service.Refresh(r.Context(), cookie.Value)
+	result, err := h.service.Refresh(r.Context(), token)
 	if errors.Is(err, ErrInvalidRefresh) {
 		h.clearRefreshCookie(w)
 		httpx.WriteError(w, http.StatusUnauthorized, "invalid refresh token")
@@ -128,9 +141,31 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.setRefreshCookie(w, tokens.RefreshToken)
-	tokens.RefreshToken = ""
-	httpx.WriteJSON(w, http.StatusOK, tokens)
+	h.setRefreshCookie(w, result.RefreshToken)
+	httpx.WriteJSON(w, http.StatusOK, result)
+}
+
+func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
+	var token string
+
+	var req refreshRequest
+	if err := httpx.ReadJSON(r, &req); err == nil && req.RefreshToken != "" {
+		token = req.RefreshToken
+	} else {
+		cookie, err := r.Cookie(refreshCookieName)
+		if err == nil && cookie.Value != "" {
+			token = cookie.Value
+		}
+	}
+
+	if token != "" {
+		if err := h.service.Logout(r.Context(), token); err != nil {
+			h.logger.Error("logout failed", "error", err)
+		}
+	}
+
+	h.clearRefreshCookie(w)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {

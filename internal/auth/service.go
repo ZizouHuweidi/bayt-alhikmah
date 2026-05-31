@@ -139,6 +139,17 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (AuthTokens,
 	return AuthTokens{AccessToken: accessToken, RefreshToken: newRefresh, TokenType: "Bearer", ExpiresIn: int64(s.tokens.accessTTL.Seconds())}, nil
 }
 
+func (s *Service) Logout(ctx context.Context, refreshToken string) error {
+	existing, err := s.repo.GetRefreshToken(ctx, HashRefreshToken(refreshToken))
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		return nil
+	}
+	return s.repo.RevokeRefreshTokenFamily(ctx, existing.FamilyID)
+}
+
 func (s *Service) GetUser(ctx context.Context, userID uuid.UUID) (*User, error) {
 	user, err := s.repo.GetUserByID(ctx, userID)
 	if err != nil {
