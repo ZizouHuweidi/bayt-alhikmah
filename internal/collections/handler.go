@@ -6,8 +6,9 @@ import (
 	"net/http"
 
 	"github.com/gofrs/uuid/v5"
+	"github.com/labstack/echo/v5"
 	"github.com/zizouhuweidi/maktaba/internal/auth"
-	"github.com/zizouhuweidi/maktaba/internal/httpx"
+	"github.com/zizouhuweidi/maktaba/internal/echox"
 )
 
 type Handler struct {
@@ -20,7 +21,7 @@ func NewHandler(service *Service, logger *slog.Logger) *Handler {
 }
 
 type CreateRequest struct {
-	Name        string   `json:"name"`
+	Name        string   `json:"name" validate:"required"`
 	Description *string  `json:"description,omitempty"`
 	IsPublic    bool     `json:"is_public"`
 	SourceIDs   []string `json:"source_ids,omitempty"`
@@ -33,230 +34,183 @@ type UpdateRequest struct {
 	SourceIDs   []string `json:"source_ids,omitempty"`
 }
 
-func (h *Handler) RegisterPublicRoutes(r httpx.Router) {
-	r.Get("/collections", h.List)
-	r.Get("/collections/:id", h.GetByID)
+func (h *Handler) RegisterPublicRoutes(e *echo.Echo) {
+	e.GET("/collections", h.List)
+	e.GET("/collections/:id", h.GetByID)
 }
 
-func (h *Handler) RegisterProtectedRoutes(r httpx.Router) {
-	r.Post("/collections", h.Create)
-	r.Get("/collections", h.ListOwn)
-	r.Put("/collections/:id", h.Update)
-	r.Delete("/collections/:id", h.Delete)
+func (h *Handler) RegisterProtectedRoutes(g *echo.Group) {
+	g.POST("/collections", h.Create)
+	g.GET("/collections", h.ListOwn)
+	g.PUT("/collections/:id", h.Update)
+	g.DELETE("/collections/:id", h.Delete)
 }
 
-func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
-	userID, ok := auth.UserIDFromContext(r.Context())
+func (h *Handler) Create(c *echo.Context) error {
+	userID, ok := auth.UserID(c)
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "authentication required")
-		return
+		return echo.NewHTTPError(http.StatusUnauthorized, "authentication required")
 	}
 
 	var req CreateRequest
-	if err := httpx.ReadJSON(r, &req); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
-		return
+	if err := echox.BindAndValidate(c, &req); err != nil {
+		return err
 	}
-	sourceIDs, ok := parseUUIDs(w, req.SourceIDs, "source_ids")
-	if !ok {
-		return
+	sourceIDs, err := parseUUIDs(req.SourceIDs, "source_ids")
+	if err != nil {
+		return err
 	}
 
-	collection, err := h.service.Create(r.Context(), CreateCollectionParams{
-		UserID:      userID,
-		Name:        req.Name,
-		Description: req.Description,
-		IsPublic:    req.IsPublic,
-		SourceIDs:   sourceIDs,
-	})
+	collection, err := h.service.Create(c.Request().Context(), CreateCollectionParams{UserID: userID, Name: req.Name, Description: req.Description, IsPublic: req.IsPublic, SourceIDs: sourceIDs})
 	if errors.Is(err, ErrInvalidCollection) {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid collection")
-		return
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid collection")
 	}
 	if errors.Is(err, ErrSourceNotFound) {
-		httpx.WriteError(w, http.StatusNotFound, "source not found")
-		return
+		return echo.NewHTTPError(http.StatusNotFound, "source not found")
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to create collection")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to create collection")
 	}
 
-	httpx.WriteJSON(w, http.StatusCreated, collection)
+	return c.JSON(http.StatusCreated, collection)
 }
 
-func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
-	id, ok := parsePathUUID(w, r, "id", "collection ID")
-	if !ok {
-		return
+func (h *Handler) GetByID(c *echo.Context) error {
+	id, err := echox.ParamUUID(c, "id", "collection ID")
+	if err != nil {
+		return err
 	}
 
-	collection, err := h.service.GetByID(r.Context(), id)
+	collection, err := h.service.GetByID(c.Request().Context(), id)
 	if errors.Is(err, ErrCollectionNotFound) {
-		httpx.WriteError(w, http.StatusNotFound, "collection not found")
-		return
+		return echo.NewHTTPError(http.StatusNotFound, "collection not found")
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to get collection")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get collection")
 	}
 	if !collection.IsPublic {
-		httpx.WriteError(w, http.StatusForbidden, "collection is private")
-		return
+		return echo.NewHTTPError(http.StatusForbidden, "collection is private")
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, collection)
+	return c.JSON(http.StatusOK, collection)
 }
 
-func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	limit, offset := httpx.Pagination(r)
-	userIDStr := r.URL.Query().Get("user_id")
+func (h *Handler) List(c *echo.Context) error {
+	limit, offset := echox.Pagination(c)
+	userIDStr := c.QueryParam("user_id")
 	if userIDStr == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "user_id required")
-		return
+		return echo.NewHTTPError(http.StatusBadRequest, "user_id required")
 	}
 	userID, err := uuid.FromString(userIDStr)
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid user_id")
-		return
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid user_id")
 	}
 
-	collections, err := h.service.ListPublicByUser(r.Context(), userID, limit, offset)
+	collections, err := h.service.ListPublicByUser(c.Request().Context(), userID, limit, offset)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to list collections")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to list collections")
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, collections)
+	return c.JSON(http.StatusOK, collections)
 }
 
-func (h *Handler) ListOwn(w http.ResponseWriter, r *http.Request) {
-	userID, ok := auth.UserIDFromContext(r.Context())
+func (h *Handler) ListOwn(c *echo.Context) error {
+	userID, ok := auth.UserID(c)
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "authentication required")
-		return
+		return echo.NewHTTPError(http.StatusUnauthorized, "authentication required")
 	}
-	limit, offset := httpx.Pagination(r)
+	limit, offset := echox.Pagination(c)
 
-	collections, err := h.service.ListByUser(r.Context(), userID, limit, offset)
+	collections, err := h.service.ListByUser(c.Request().Context(), userID, limit, offset)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to list collections")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to list collections")
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, collections)
+	return c.JSON(http.StatusOK, collections)
 }
 
-func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
-	userID, ok := auth.UserIDFromContext(r.Context())
+func (h *Handler) Update(c *echo.Context) error {
+	userID, ok := auth.UserID(c)
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "authentication required")
-		return
+		return echo.NewHTTPError(http.StatusUnauthorized, "authentication required")
 	}
-	id, ok := parsePathUUID(w, r, "id", "collection ID")
-	if !ok {
-		return
+	id, err := echox.ParamUUID(c, "id", "collection ID")
+	if err != nil {
+		return err
 	}
 
-	existing, err := h.service.GetByID(r.Context(), id)
+	existing, err := h.service.GetByID(c.Request().Context(), id)
 	if errors.Is(err, ErrCollectionNotFound) {
-		httpx.WriteError(w, http.StatusNotFound, "collection not found")
-		return
+		return echo.NewHTTPError(http.StatusNotFound, "collection not found")
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to get collection")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get collection")
 	}
 	if existing.UserID != userID {
-		httpx.WriteError(w, http.StatusForbidden, "cannot update another user's collection")
-		return
+		return echo.NewHTTPError(http.StatusForbidden, "cannot update another user's collection")
 	}
 
 	var req UpdateRequest
-	if err := httpx.ReadJSON(r, &req); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
-		return
+	if err := echox.BindAndValidate(c, &req); err != nil {
+		return err
 	}
-	sourceIDs, ok := parseUUIDs(w, req.SourceIDs, "source_ids")
-	if !ok {
-		return
+	sourceIDs, err := parseUUIDs(req.SourceIDs, "source_ids")
+	if err != nil {
+		return err
 	}
 
-	collection, err := h.service.Update(r.Context(), id, UpdateCollectionParams{
-		Name:        req.Name,
-		Description: req.Description,
-		IsPublic:    req.IsPublic,
-		SourceIDs:   sourceIDs,
-	})
+	collection, err := h.service.Update(c.Request().Context(), id, UpdateCollectionParams{Name: req.Name, Description: req.Description, IsPublic: req.IsPublic, SourceIDs: sourceIDs})
 	if errors.Is(err, ErrInvalidCollection) {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid collection")
-		return
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid collection")
 	}
 	if errors.Is(err, ErrSourceNotFound) {
-		httpx.WriteError(w, http.StatusNotFound, "source not found")
-		return
+		return echo.NewHTTPError(http.StatusNotFound, "source not found")
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to update collection")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to update collection")
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, collection)
+	return c.JSON(http.StatusOK, collection)
 }
 
-func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
-	userID, ok := auth.UserIDFromContext(r.Context())
+func (h *Handler) Delete(c *echo.Context) error {
+	userID, ok := auth.UserID(c)
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "authentication required")
-		return
+		return echo.NewHTTPError(http.StatusUnauthorized, "authentication required")
 	}
-	id, ok := parsePathUUID(w, r, "id", "collection ID")
-	if !ok {
-		return
+	id, err := echox.ParamUUID(c, "id", "collection ID")
+	if err != nil {
+		return err
 	}
 
-	existing, err := h.service.GetByID(r.Context(), id)
+	existing, err := h.service.GetByID(c.Request().Context(), id)
 	if errors.Is(err, ErrCollectionNotFound) {
-		httpx.WriteError(w, http.StatusNotFound, "collection not found")
-		return
+		return echo.NewHTTPError(http.StatusNotFound, "collection not found")
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to get collection")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get collection")
 	}
 	if existing.UserID != userID {
-		httpx.WriteError(w, http.StatusForbidden, "cannot delete another user's collection")
-		return
+		return echo.NewHTTPError(http.StatusForbidden, "cannot delete another user's collection")
 	}
 
-	if err := h.service.Delete(r.Context(), id); err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to delete collection")
-		return
+	if err := h.service.Delete(c.Request().Context(), id); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to delete collection")
 	}
-	w.WriteHeader(http.StatusNoContent)
+	return c.NoContent(http.StatusNoContent)
 }
 
-func parsePathUUID(w http.ResponseWriter, r *http.Request, key, label string) (uuid.UUID, bool) {
-	id, err := uuid.FromString(r.PathValue(key))
-	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid "+label)
-		return uuid.Nil, false
-	}
-	return id, true
-}
-
-func parseUUIDs(w http.ResponseWriter, values []string, label string) ([]uuid.UUID, bool) {
+func parseUUIDs(values []string, label string) ([]uuid.UUID, error) {
 	if values == nil {
-		return nil, true
+		return nil, nil
 	}
 	ids := make([]uuid.UUID, 0, len(values))
 	for _, value := range values {
 		id, err := uuid.FromString(value)
 		if err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, "invalid "+label)
-			return nil, false
+			return nil, echo.NewHTTPError(http.StatusBadRequest, "invalid "+label)
 		}
 		ids = append(ids, id)
 	}
-	return ids, true
+	return ids, nil
 }

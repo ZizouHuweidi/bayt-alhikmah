@@ -1,15 +1,13 @@
 package auth
 
 import (
-	"context"
 	"time"
 
 	"github.com/gofrs/uuid/v5"
+	"github.com/labstack/echo/v5"
 )
 
-type contextKey string
-
-const userIDContextKey contextKey = "user_id"
+const userIDContextKey = "user_id"
 
 type User struct {
 	ID           uuid.UUID `json:"id" db:"id"`
@@ -36,11 +34,11 @@ type RefreshTokenRotation struct {
 	ReplacedByID   uuid.UUID
 }
 
-func ContextWithUserID(ctx context.Context, userID uuid.UUID) context.Context {
-	return context.WithValue(ctx, userIDContextKey, userID)
+func SetUserID(c *echo.Context, userID uuid.UUID) {
+	c.Set(userIDContextKey, userID)
 }
 
-func UserIDFromContext(ctx context.Context) (uuid.UUID, bool) {
-	userID, ok := ctx.Value(userIDContextKey).(uuid.UUID)
+func UserID(c *echo.Context) (uuid.UUID, bool) {
+	userID, ok := c.Get(userIDContextKey).(uuid.UUID)
 	return userID, ok
 }

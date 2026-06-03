@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/gofrs/uuid/v5"
-	"github.com/zizouhuweidi/maktaba/internal/httpx"
+	"github.com/labstack/echo/v5"
+	"github.com/zizouhuweidi/maktaba/internal/echox"
 )
 
 type Handler struct {
@@ -19,9 +19,9 @@ func NewHandler(service *Service, logger *slog.Logger) *Handler {
 }
 
 type CreateRequest struct {
-	Title       string   `json:"title"`
+	Title       string   `json:"title" validate:"required"`
 	Subtitle    *string  `json:"subtitle,omitempty"`
-	Type        string   `json:"type"`
+	Type        string   `json:"type" validate:"required"`
 	Description *string  `json:"description,omitempty"`
 	Publisher   *string  `json:"publisher,omitempty"`
 	ISBN        *string  `json:"isbn,omitempty"`
@@ -45,7 +45,7 @@ type UpdateRequest struct {
 }
 
 type CreateBookRequest struct {
-	Title        string             `json:"title"`
+	Title        string             `json:"title" validate:"required"`
 	Subtitle     *string            `json:"subtitle,omitempty"`
 	Description  *string            `json:"description,omitempty"`
 	URL          *string            `json:"url,omitempty"`
@@ -60,28 +60,27 @@ type CreateBookRequest struct {
 	Contributors []ContributorInput `json:"contributors,omitempty"`
 }
 
-func (h *Handler) RegisterPublicRoutes(r httpx.Router) {
-	r.Get("/sources", h.List)
-	r.Get("/sources/search", h.Search)
-	r.Get("/sources/books/:id", h.GetBookByID)
-	r.Get("/sources/:id", h.GetByID)
+func (h *Handler) RegisterPublicRoutes(e *echo.Echo) {
+	e.GET("/sources", h.List)
+	e.GET("/sources/search", h.Search)
+	e.GET("/sources/books/:id", h.GetBookByID)
+	e.GET("/sources/:id", h.GetByID)
 }
 
-func (h *Handler) RegisterProtectedRoutes(r httpx.Router) {
-	r.Post("/sources", h.Create)
-	r.Post("/sources/books", h.CreateBook)
-	r.Put("/sources/:id", h.Update)
-	r.Delete("/sources/:id", h.Delete)
+func (h *Handler) RegisterProtectedRoutes(g *echo.Group) {
+	g.POST("/sources", h.Create)
+	g.POST("/sources/books", h.CreateBook)
+	g.PUT("/sources/:id", h.Update)
+	g.DELETE("/sources/:id", h.Delete)
 }
 
-func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) Create(c *echo.Context) error {
 	var req CreateRequest
-	if err := httpx.ReadJSON(r, &req); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
-		return
+	if err := echox.BindAndValidate(c, &req); err != nil {
+		return err
 	}
 
-	source, err := h.service.Create(r.Context(), CreateSourceParams{
+	source, err := h.service.Create(c.Request().Context(), CreateSourceParams{
 		Title:       req.Title,
 		Subtitle:    req.Subtitle,
 		Type:        SourceType(req.Type),
@@ -94,25 +93,22 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		Tags:        req.Tags,
 	})
 	if errors.Is(err, ErrInvalidSource) {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid source")
-		return
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid source")
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to create source")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to create source")
 	}
 
-	httpx.WriteJSON(w, http.StatusCreated, source)
+	return c.JSON(http.StatusCreated, source)
 }
 
-func (h *Handler) CreateBook(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) CreateBook(c *echo.Context) error {
 	var req CreateBookRequest
-	if err := httpx.ReadJSON(r, &req); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
-		return
+	if err := echox.BindAndValidate(c, &req); err != nil {
+		return err
 	}
 
-	book, err := h.service.CreateBook(r.Context(), CreateBookParams{
+	book, err := h.service.CreateBook(c.Request().Context(), CreateBookParams{
 		Title:        req.Title,
 		Subtitle:     req.Subtitle,
 		Description:  req.Description,
@@ -128,105 +124,94 @@ func (h *Handler) CreateBook(w http.ResponseWriter, r *http.Request) {
 		Contributors: req.Contributors,
 	})
 	if errors.Is(err, ErrInvalidSource) {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid book")
-		return
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid book")
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to create book")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to create book")
 	}
 
-	httpx.WriteJSON(w, http.StatusCreated, book)
+	return c.JSON(http.StatusCreated, book)
 }
 
-func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
-	id, ok := parsePathUUID(w, r, "id", "source ID")
-	if !ok {
-		return
+func (h *Handler) GetByID(c *echo.Context) error {
+	id, err := echox.ParamUUID(c, "id", "source ID")
+	if err != nil {
+		return err
 	}
 
-	source, err := h.service.GetByID(r.Context(), id)
+	source, err := h.service.GetByID(c.Request().Context(), id)
 	if errors.Is(err, ErrSourceNotFound) {
-		httpx.WriteError(w, http.StatusNotFound, "source not found")
-		return
+		return echo.NewHTTPError(http.StatusNotFound, "source not found")
 	}
 	if errors.Is(err, ErrInvalidSource) {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid source")
-		return
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid source")
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to get source")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get source")
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, source)
+	return c.JSON(http.StatusOK, source)
 }
 
-func (h *Handler) GetBookByID(w http.ResponseWriter, r *http.Request) {
-	id, ok := parsePathUUID(w, r, "id", "source ID")
-	if !ok {
-		return
+func (h *Handler) GetBookByID(c *echo.Context) error {
+	id, err := echox.ParamUUID(c, "id", "source ID")
+	if err != nil {
+		return err
 	}
 
-	book, err := h.service.GetBookByID(r.Context(), id)
+	book, err := h.service.GetBookByID(c.Request().Context(), id)
 	if errors.Is(err, ErrSourceNotFound) {
-		httpx.WriteError(w, http.StatusNotFound, "book not found")
-		return
+		return echo.NewHTTPError(http.StatusNotFound, "book not found")
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to get book")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get book")
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, book)
+	return c.JSON(http.StatusOK, book)
 }
 
-func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	limit, offset := httpx.Pagination(r)
-	sourceType := r.URL.Query().Get("type")
+func (h *Handler) List(c *echo.Context) error {
+	limit, offset := echox.Pagination(c)
+	sourceType := c.QueryParam("type")
 
 	var sources []*Source
 	var err error
 	if sourceType != "" {
-		sources, err = h.service.ListByType(r.Context(), SourceType(sourceType), limit, offset)
+		sources, err = h.service.ListByType(c.Request().Context(), SourceType(sourceType), limit, offset)
 	} else {
-		sources, err = h.service.List(r.Context(), limit, offset)
+		sources, err = h.service.List(c.Request().Context(), limit, offset)
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to list sources")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to list sources")
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, sources)
+	return c.JSON(http.StatusOK, sources)
 }
 
-func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query().Get("q")
+func (h *Handler) Search(c *echo.Context) error {
+	query := c.QueryParam("q")
 	if query == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "search query required")
-		return
+		return echo.NewHTTPError(http.StatusBadRequest, "search query required")
 	}
 
-	limit, offset := httpx.Pagination(r)
-	sources, err := h.service.Search(r.Context(), query, limit, offset)
+	limit, offset := echox.Pagination(c)
+	sources, err := h.service.Search(c.Request().Context(), query, limit, offset)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to search sources")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to search sources")
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, sources)
+	return c.JSON(http.StatusOK, sources)
 }
 
-func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
-	id, ok := parsePathUUID(w, r, "id", "source ID")
-	if !ok {
-		return
+func (h *Handler) Update(c *echo.Context) error {
+	id, err := echox.ParamUUID(c, "id", "source ID")
+	if err != nil {
+		return err
 	}
 
 	var req UpdateRequest
-	if err := httpx.ReadJSON(r, &req); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
-		return
+	if err := echox.BindAndValidate(c, &req); err != nil {
+		return err
 	}
 
 	var sourceType *SourceType
@@ -235,7 +220,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		sourceType = &st
 	}
 
-	source, err := h.service.Update(r.Context(), id, UpdateSourceParams{
+	source, err := h.service.Update(c.Request().Context(), id, UpdateSourceParams{
 		Title:       req.Title,
 		Subtitle:    req.Subtitle,
 		Type:        sourceType,
@@ -248,46 +233,22 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		Tags:        req.Tags,
 	})
 	if errors.Is(err, ErrSourceNotFound) {
-		httpx.WriteError(w, http.StatusNotFound, "source not found")
-		return
+		return echo.NewHTTPError(http.StatusNotFound, "source not found")
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to update source")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to update source")
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, source)
+	return c.JSON(http.StatusOK, source)
 }
 
-func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
-	id, ok := parsePathUUID(w, r, "id", "source ID")
-	if !ok {
-		return
-	}
-	if err := h.service.Delete(r.Context(), id); err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to delete source")
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func parsePathUUID(w http.ResponseWriter, r *http.Request, key, label string) (uuid.UUID, bool) {
-	id, err := uuid.FromString(r.PathValue(key))
+func (h *Handler) Delete(c *echo.Context) error {
+	id, err := echox.ParamUUID(c, "id", "source ID")
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid "+label)
-		return uuid.Nil, false
+		return err
 	}
-	return id, true
-}
-
-func parseOptionalUUID(w http.ResponseWriter, value *string, label string) (*uuid.UUID, bool) {
-	if value == nil {
-		return nil, true
+	if err := h.service.Delete(c.Request().Context(), id); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to delete source")
 	}
-	id, err := uuid.FromString(*value)
-	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid "+label)
-		return nil, false
-	}
-	return &id, true
+	return c.NoContent(http.StatusNoContent)
 }

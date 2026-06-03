@@ -6,8 +6,9 @@ import (
 	"net/http"
 
 	"github.com/gofrs/uuid/v5"
+	"github.com/labstack/echo/v5"
 	"github.com/zizouhuweidi/maktaba/internal/auth"
-	"github.com/zizouhuweidi/maktaba/internal/httpx"
+	"github.com/zizouhuweidi/maktaba/internal/echox"
 )
 
 type Handler struct {
@@ -20,237 +21,186 @@ func NewHandler(service *Service, logger *slog.Logger) *Handler {
 }
 
 type CreateRequest struct {
-	SourceID string  `json:"source_id"`
-	Rating   int     `json:"rating"`
+	SourceID string  `json:"source_id" validate:"required"`
+	Rating   int     `json:"rating" validate:"required,min=1,max=5"`
 	Content  *string `json:"content,omitempty"`
 	IsPublic bool    `json:"is_public"`
 }
 
 type UpdateRequest struct {
-	Rating   *int    `json:"rating,omitempty"`
+	Rating   *int    `json:"rating,omitempty" validate:"omitempty,min=1,max=5"`
 	Content  *string `json:"content,omitempty"`
 	IsPublic *bool   `json:"is_public,omitempty"`
 }
 
-func (h *Handler) RegisterPublicRoutes(r httpx.Router) {
-	r.Get("/reviews", h.List)
-	r.Get("/reviews/:id", h.GetByID)
+func (h *Handler) RegisterPublicRoutes(e *echo.Echo) {
+	e.GET("/reviews", h.List)
+	e.GET("/reviews/:id", h.GetByID)
 }
 
-func (h *Handler) RegisterProtectedRoutes(r httpx.Router) {
-	r.Post("/reviews", h.Create)
-	r.Get("/reviews", h.ListOwn)
-	r.Put("/reviews/:id", h.Update)
-	r.Delete("/reviews/:id", h.Delete)
+func (h *Handler) RegisterProtectedRoutes(g *echo.Group) {
+	g.POST("/reviews", h.Create)
+	g.GET("/reviews", h.ListOwn)
+	g.PUT("/reviews/:id", h.Update)
+	g.DELETE("/reviews/:id", h.Delete)
 }
 
-func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
-	userID, ok := auth.UserIDFromContext(r.Context())
+func (h *Handler) Create(c *echo.Context) error {
+	userID, ok := auth.UserID(c)
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "authentication required")
-		return
+		return echo.NewHTTPError(http.StatusUnauthorized, "authentication required")
 	}
 
 	var req CreateRequest
-	if err := httpx.ReadJSON(r, &req); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
-		return
+	if err := echox.BindAndValidate(c, &req); err != nil {
+		return err
 	}
 	sourceID, err := uuid.FromString(req.SourceID)
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid source_id")
-		return
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid source_id")
 	}
 
-	review, err := h.service.Create(r.Context(), CreateReviewParams{
-		UserID:   userID,
-		SourceID: sourceID,
-		Rating:   req.Rating,
-		Content:  req.Content,
-		IsPublic: req.IsPublic,
-	})
+	review, err := h.service.Create(c.Request().Context(), CreateReviewParams{UserID: userID, SourceID: sourceID, Rating: req.Rating, Content: req.Content, IsPublic: req.IsPublic})
 	if errors.Is(err, ErrInvalidReview) {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid review")
-		return
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid review")
 	}
 	if errors.Is(err, ErrReviewExists) {
-		httpx.WriteError(w, http.StatusConflict, "review already exists for source")
-		return
+		return echo.NewHTTPError(http.StatusConflict, "review already exists for source")
 	}
 	if errors.Is(err, ErrSourceNotFound) {
-		httpx.WriteError(w, http.StatusNotFound, "source not found")
-		return
+		return echo.NewHTTPError(http.StatusNotFound, "source not found")
 	}
 	if errors.Is(err, ErrReviewConflict) {
-		httpx.WriteError(w, http.StatusConflict, "review conflict")
-		return
+		return echo.NewHTTPError(http.StatusConflict, "review conflict")
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to create review")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to create review")
 	}
 
-	httpx.WriteJSON(w, http.StatusCreated, review)
+	return c.JSON(http.StatusCreated, review)
 }
 
-func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
-	id, ok := parsePathUUID(w, r, "id", "review ID")
-	if !ok {
-		return
+func (h *Handler) GetByID(c *echo.Context) error {
+	id, err := echox.ParamUUID(c, "id", "review ID")
+	if err != nil {
+		return err
 	}
 
-	review, err := h.service.GetByID(r.Context(), id)
+	review, err := h.service.GetByID(c.Request().Context(), id)
 	if errors.Is(err, ErrReviewNotFound) {
-		httpx.WriteError(w, http.StatusNotFound, "review not found")
-		return
+		return echo.NewHTTPError(http.StatusNotFound, "review not found")
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to get review")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get review")
 	}
 	if !review.IsPublic {
-		httpx.WriteError(w, http.StatusForbidden, "review is private")
-		return
+		return echo.NewHTTPError(http.StatusForbidden, "review is private")
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, review)
+	return c.JSON(http.StatusOK, review)
 }
 
-func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	limit, offset := httpx.Pagination(r)
-	userIDStr := r.URL.Query().Get("user_id")
-	sourceIDStr := r.URL.Query().Get("source_id")
+func (h *Handler) List(c *echo.Context) error {
+	limit, offset := echox.Pagination(c)
+	userIDStr := c.QueryParam("user_id")
+	sourceIDStr := c.QueryParam("source_id")
 
 	var result []*Review
 	var err error
 	if userIDStr != "" {
 		userID, parseErr := uuid.FromString(userIDStr)
 		if parseErr != nil {
-			httpx.WriteError(w, http.StatusBadRequest, "invalid user_id")
-			return
+			return echo.NewHTTPError(http.StatusBadRequest, "invalid user_id")
 		}
-		result, err = h.service.ListPublicByUser(r.Context(), userID, limit, offset)
+		result, err = h.service.ListPublicByUser(c.Request().Context(), userID, limit, offset)
 	} else if sourceIDStr != "" {
 		sourceID, parseErr := uuid.FromString(sourceIDStr)
 		if parseErr != nil {
-			httpx.WriteError(w, http.StatusBadRequest, "invalid source_id")
-			return
+			return echo.NewHTTPError(http.StatusBadRequest, "invalid source_id")
 		}
-		result, err = h.service.ListPublicBySource(r.Context(), sourceID, limit, offset)
+		result, err = h.service.ListPublicBySource(c.Request().Context(), sourceID, limit, offset)
 	} else {
-		httpx.WriteError(w, http.StatusBadRequest, "user_id or source_id required")
-		return
+		return echo.NewHTTPError(http.StatusBadRequest, "user_id or source_id required")
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to list reviews")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to list reviews")
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, result)
+	return c.JSON(http.StatusOK, result)
 }
 
-func (h *Handler) ListOwn(w http.ResponseWriter, r *http.Request) {
-	userID, ok := auth.UserIDFromContext(r.Context())
+func (h *Handler) ListOwn(c *echo.Context) error {
+	userID, ok := auth.UserID(c)
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "authentication required")
-		return
+		return echo.NewHTTPError(http.StatusUnauthorized, "authentication required")
 	}
-	limit, offset := httpx.Pagination(r)
-
-	reviews, err := h.service.ListByUser(r.Context(), userID, limit, offset)
+	limit, offset := echox.Pagination(c)
+	reviews, err := h.service.ListByUser(c.Request().Context(), userID, limit, offset)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to list reviews")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to list reviews")
 	}
-
-	httpx.WriteJSON(w, http.StatusOK, reviews)
+	return c.JSON(http.StatusOK, reviews)
 }
 
-func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
-	userID, ok := auth.UserIDFromContext(r.Context())
+func (h *Handler) Update(c *echo.Context) error {
+	userID, ok := auth.UserID(c)
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "authentication required")
-		return
+		return echo.NewHTTPError(http.StatusUnauthorized, "authentication required")
 	}
-	id, ok := parsePathUUID(w, r, "id", "review ID")
-	if !ok {
-		return
+	id, err := echox.ParamUUID(c, "id", "review ID")
+	if err != nil {
+		return err
 	}
 
-	existing, err := h.service.GetByID(r.Context(), id)
+	existing, err := h.service.GetByID(c.Request().Context(), id)
 	if errors.Is(err, ErrReviewNotFound) {
-		httpx.WriteError(w, http.StatusNotFound, "review not found")
-		return
+		return echo.NewHTTPError(http.StatusNotFound, "review not found")
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to get review")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get review")
 	}
 	if existing.UserID != userID {
-		httpx.WriteError(w, http.StatusForbidden, "cannot update another user's review")
-		return
+		return echo.NewHTTPError(http.StatusForbidden, "cannot update another user's review")
 	}
 
 	var req UpdateRequest
-	if err := httpx.ReadJSON(r, &req); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
-		return
+	if err := echox.BindAndValidate(c, &req); err != nil {
+		return err
 	}
 
-	review, err := h.service.Update(r.Context(), id, UpdateReviewParams{
-		Rating:   req.Rating,
-		Content:  req.Content,
-		IsPublic: req.IsPublic,
-	})
+	review, err := h.service.Update(c.Request().Context(), id, UpdateReviewParams{Rating: req.Rating, Content: req.Content, IsPublic: req.IsPublic})
 	if errors.Is(err, ErrInvalidReview) {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid review")
-		return
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid review")
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to update review")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to update review")
 	}
-
-	httpx.WriteJSON(w, http.StatusOK, review)
+	return c.JSON(http.StatusOK, review)
 }
 
-func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
-	userID, ok := auth.UserIDFromContext(r.Context())
+func (h *Handler) Delete(c *echo.Context) error {
+	userID, ok := auth.UserID(c)
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "authentication required")
-		return
+		return echo.NewHTTPError(http.StatusUnauthorized, "authentication required")
 	}
-	id, ok := parsePathUUID(w, r, "id", "review ID")
-	if !ok {
-		return
+	id, err := echox.ParamUUID(c, "id", "review ID")
+	if err != nil {
+		return err
 	}
 
-	existing, err := h.service.GetByID(r.Context(), id)
+	existing, err := h.service.GetByID(c.Request().Context(), id)
 	if errors.Is(err, ErrReviewNotFound) {
-		httpx.WriteError(w, http.StatusNotFound, "review not found")
-		return
+		return echo.NewHTTPError(http.StatusNotFound, "review not found")
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to get review")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get review")
 	}
 	if existing.UserID != userID {
-		httpx.WriteError(w, http.StatusForbidden, "cannot delete another user's review")
-		return
+		return echo.NewHTTPError(http.StatusForbidden, "cannot delete another user's review")
 	}
 
-	if err := h.service.Delete(r.Context(), id); err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to delete review")
-		return
+	if err := h.service.Delete(c.Request().Context(), id); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to delete review")
 	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func parsePathUUID(w http.ResponseWriter, r *http.Request, key, label string) (uuid.UUID, bool) {
-	id, err := uuid.FromString(r.PathValue(key))
-	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid "+label)
-		return uuid.Nil, false
-	}
-	return id, true
+	return c.NoContent(http.StatusNoContent)
 }

@@ -7,8 +7,9 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid/v5"
+	"github.com/labstack/echo/v5"
 	"github.com/zizouhuweidi/maktaba/internal/auth"
-	"github.com/zizouhuweidi/maktaba/internal/httpx"
+	"github.com/zizouhuweidi/maktaba/internal/echox"
 )
 
 type Handler struct {
@@ -17,8 +18,8 @@ type Handler struct {
 }
 
 type createRequest struct {
-	SourceID      string        `json:"source_id"`
-	Status        string        `json:"status"`
+	SourceID      string        `json:"source_id" validate:"required"`
+	Status        string        `json:"status" validate:"required"`
 	ProgressValue *int          `json:"progress_value,omitempty"`
 	ProgressUnit  *ProgressUnit `json:"progress_unit,omitempty"`
 	Visibility    string        `json:"visibility,omitempty"`
@@ -39,43 +40,40 @@ func NewHandler(service *Service, logger *slog.Logger) *Handler {
 	return &Handler{service: service, logger: logger}
 }
 
-func (h *Handler) RegisterPublicRoutes(r httpx.Router) {
-	r.Get("/users/:user/library", h.ListPublicLibrary)
-	r.Get("/users/:user/library/with-sources", h.ListPublicLibraryWithSources)
+func (h *Handler) RegisterPublicRoutes(e *echo.Echo) {
+	e.GET("/users/:user/library", h.ListPublicLibrary)
+	e.GET("/users/:user/library/with-sources", h.ListPublicLibraryWithSources)
 }
 
-func (h *Handler) RegisterProtectedRoutes(r httpx.Router) {
-	r.Post("/library/items", h.Create)
-	r.Get("/library/items", h.ListMine)
-	r.Get("/library/items/with-sources", h.ListMineWithSources)
-	r.Get("/library/items/:id", h.GetMine)
-	r.Put("/library/items/:id", h.Update)
-	r.Delete("/library/items/:id", h.Delete)
+func (h *Handler) RegisterProtectedRoutes(g *echo.Group) {
+	g.POST("/library/items", h.Create)
+	g.GET("/library/items", h.ListMine)
+	g.GET("/library/items/with-sources", h.ListMineWithSources)
+	g.GET("/library/items/:id", h.GetMine)
+	g.PUT("/library/items/:id", h.Update)
+	g.DELETE("/library/items/:id", h.Delete)
 }
 
-func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
-	userID, ok := auth.UserIDFromContext(r.Context())
+func (h *Handler) Create(c *echo.Context) error {
+	userID, ok := auth.UserID(c)
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "authentication required")
-		return
+		return echo.NewHTTPError(http.StatusUnauthorized, "authentication required")
 	}
 
 	var req createRequest
-	if err := httpx.ReadJSON(r, &req); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
-		return
+	if err := echox.BindAndValidate(c, &req); err != nil {
+		return err
 	}
 	sourceID, err := uuid.FromString(req.SourceID)
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid source_id")
-		return
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid source_id")
 	}
 	visibility := Visibility(req.Visibility)
 	if visibility == "" {
 		visibility = VisibilityPrivate
 	}
 
-	item, err := h.service.Create(r.Context(), CreateItemParams{
+	item, err := h.service.Create(c.Request().Context(), CreateItemParams{
 		UserID:        userID,
 		SourceID:      sourceID,
 		Status:        Status(req.Status),
@@ -86,88 +84,76 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		CompletedAt:   req.CompletedAt,
 	})
 	if errors.Is(err, ErrInvalidItem) {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid library item")
-		return
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid library item")
 	}
 	if errors.Is(err, ErrSourceNotFound) {
-		httpx.WriteError(w, http.StatusNotFound, "source not found")
-		return
+		return echo.NewHTTPError(http.StatusNotFound, "source not found")
 	}
 	if errors.Is(err, ErrItemExists) {
-		httpx.WriteError(w, http.StatusConflict, "source already exists in library")
-		return
+		return echo.NewHTTPError(http.StatusConflict, "source already exists in library")
 	}
 	if errors.Is(err, ErrLibraryConflict) {
-		httpx.WriteError(w, http.StatusConflict, "library item conflict")
-		return
+		return echo.NewHTTPError(http.StatusConflict, "library item conflict")
 	}
 	if err != nil {
 		h.logger.Error("failed to create library item", "error", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to create library item")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to create library item")
 	}
 
-	httpx.WriteJSON(w, http.StatusCreated, item)
+	return c.JSON(http.StatusCreated, item)
 }
 
-func (h *Handler) ListMine(w http.ResponseWriter, r *http.Request) {
-	userID, ok := auth.UserIDFromContext(r.Context())
+func (h *Handler) ListMine(c *echo.Context) error {
+	userID, ok := auth.UserID(c)
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "authentication required")
-		return
+		return echo.NewHTTPError(http.StatusUnauthorized, "authentication required")
 	}
-	limit, offset := httpx.Pagination(r)
-	items, err := h.service.ListByUser(r.Context(), userID, limit, offset)
+	limit, offset := echox.Pagination(c)
+	items, err := h.service.ListByUser(c.Request().Context(), userID, limit, offset)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to list library items")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to list library items")
 	}
-	httpx.WriteJSON(w, http.StatusOK, items)
+	return c.JSON(http.StatusOK, items)
 }
 
-func (h *Handler) ListMineWithSources(w http.ResponseWriter, r *http.Request) {
-	userID, ok := auth.UserIDFromContext(r.Context())
+func (h *Handler) ListMineWithSources(c *echo.Context) error {
+	userID, ok := auth.UserID(c)
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "authentication required")
-		return
+		return echo.NewHTTPError(http.StatusUnauthorized, "authentication required")
 	}
-	limit, offset := httpx.Pagination(r)
-	items, err := h.service.ListByUserWithSources(r.Context(), userID, limit, offset)
+	limit, offset := echox.Pagination(c)
+	items, err := h.service.ListByUserWithSources(c.Request().Context(), userID, limit, offset)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to list library items")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to list library items")
 	}
-	httpx.WriteJSON(w, http.StatusOK, items)
+	return c.JSON(http.StatusOK, items)
 }
 
-func (h *Handler) GetMine(w http.ResponseWriter, r *http.Request) {
-	userID, ok := auth.UserIDFromContext(r.Context())
+func (h *Handler) GetMine(c *echo.Context) error {
+	userID, ok := auth.UserID(c)
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "authentication required")
-		return
+		return echo.NewHTTPError(http.StatusUnauthorized, "authentication required")
 	}
-	item, ok := h.getOwnedItem(w, r, userID)
-	if !ok {
-		return
+	item, err := h.getOwnedItem(c, userID)
+	if err != nil {
+		return err
 	}
-	httpx.WriteJSON(w, http.StatusOK, item)
+	return c.JSON(http.StatusOK, item)
 }
 
-func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
-	userID, ok := auth.UserIDFromContext(r.Context())
+func (h *Handler) Update(c *echo.Context) error {
+	userID, ok := auth.UserID(c)
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "authentication required")
-		return
+		return echo.NewHTTPError(http.StatusUnauthorized, "authentication required")
 	}
-	item, ok := h.getOwnedItem(w, r, userID)
-	if !ok {
-		return
+	item, err := h.getOwnedItem(c, userID)
+	if err != nil {
+		return err
 	}
 
 	var req updateRequest
-	if err := httpx.ReadJSON(r, &req); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
-		return
+	if err := echox.BindAndValidate(c, &req); err != nil {
+		return err
 	}
 	var status *Status
 	if req.Status != nil {
@@ -180,7 +166,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		visibility = &parsed
 	}
 
-	updated, err := h.service.Update(r.Context(), item.ID, UpdateItemParams{
+	updated, err := h.service.Update(c.Request().Context(), item.ID, UpdateItemParams{
 		Status:        status,
 		ProgressValue: req.ProgressValue,
 		ProgressUnit:  req.ProgressUnit,
@@ -189,92 +175,78 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		CompletedAt:   req.CompletedAt,
 	})
 	if errors.Is(err, ErrInvalidItem) {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid library item")
-		return
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid library item")
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to update library item")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to update library item")
 	}
-	httpx.WriteJSON(w, http.StatusOK, updated)
+	return c.JSON(http.StatusOK, updated)
 }
 
-func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
-	userID, ok := auth.UserIDFromContext(r.Context())
+func (h *Handler) Delete(c *echo.Context) error {
+	userID, ok := auth.UserID(c)
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "authentication required")
-		return
+		return echo.NewHTTPError(http.StatusUnauthorized, "authentication required")
 	}
-	item, ok := h.getOwnedItem(w, r, userID)
-	if !ok {
-		return
+	item, err := h.getOwnedItem(c, userID)
+	if err != nil {
+		return err
 	}
-	if err := h.service.Delete(r.Context(), item.ID); err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to delete library item")
-		return
+	if err := h.service.Delete(c.Request().Context(), item.ID); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to delete library item")
 	}
-	w.WriteHeader(http.StatusNoContent)
+	return c.NoContent(http.StatusNoContent)
 }
 
-func (h *Handler) ListPublicLibrary(w http.ResponseWriter, r *http.Request) {
-	limit, offset := httpx.Pagination(r)
-	user := r.PathValue("user")
+func (h *Handler) ListPublicLibrary(c *echo.Context) error {
+	limit, offset := echox.Pagination(c)
+	user := c.Param("user")
 
 	userID, err := uuid.FromString(user)
 	if err == nil {
-		items, err := h.service.ListPublicByUser(r.Context(), userID, limit, offset)
+		items, err := h.service.ListPublicByUser(c.Request().Context(), userID, limit, offset)
 		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "failed to list public library items")
-			return
+			return echo.NewHTTPError(http.StatusInternalServerError, "failed to list public library items")
 		}
-		httpx.WriteJSON(w, http.StatusOK, items)
-		return
+		return c.JSON(http.StatusOK, items)
 	}
 
-	items, err := h.service.ListPublicByUsername(r.Context(), user, limit, offset)
+	items, err := h.service.ListPublicByUsername(c.Request().Context(), user, limit, offset)
 	if errors.Is(err, ErrInvalidUser) {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid username")
-		return
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid username")
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to list public library items")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to list public library items")
 	}
-	httpx.WriteJSON(w, http.StatusOK, items)
+	return c.JSON(http.StatusOK, items)
 }
 
-func (h *Handler) ListPublicLibraryWithSources(w http.ResponseWriter, r *http.Request) {
-	limit, offset := httpx.Pagination(r)
-	items, err := h.service.ListPublicByUsernameWithSources(r.Context(), r.PathValue("user"), limit, offset)
+func (h *Handler) ListPublicLibraryWithSources(c *echo.Context) error {
+	limit, offset := echox.Pagination(c)
+	items, err := h.service.ListPublicByUsernameWithSources(c.Request().Context(), c.Param("user"), limit, offset)
 	if errors.Is(err, ErrInvalidUser) {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid username")
-		return
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid username")
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to list public library items")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to list public library items")
 	}
-	httpx.WriteJSON(w, http.StatusOK, items)
+	return c.JSON(http.StatusOK, items)
 }
 
-func (h *Handler) getOwnedItem(w http.ResponseWriter, r *http.Request, userID uuid.UUID) (*Item, bool) {
-	id, err := uuid.FromString(r.PathValue("id"))
+func (h *Handler) getOwnedItem(c *echo.Context, userID uuid.UUID) (*Item, error) {
+	id, err := echox.ParamUUID(c, "id", "library item ID")
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid library item ID")
-		return nil, false
+		return nil, err
 	}
-	item, err := h.service.GetByID(r.Context(), id)
+	item, err := h.service.GetByID(c.Request().Context(), id)
 	if errors.Is(err, ErrItemNotFound) {
-		httpx.WriteError(w, http.StatusNotFound, "library item not found")
-		return nil, false
+		return nil, echo.NewHTTPError(http.StatusNotFound, "library item not found")
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to get library item")
-		return nil, false
+		return nil, echo.NewHTTPError(http.StatusInternalServerError, "failed to get library item")
 	}
 	if item.UserID != userID {
-		httpx.WriteError(w, http.StatusForbidden, "cannot access another user's library item")
-		return nil, false
+		return nil, echo.NewHTTPError(http.StatusForbidden, "cannot access another user's library item")
 	}
-	return item, true
+	return item, nil
 }

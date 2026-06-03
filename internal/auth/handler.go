@@ -9,7 +9,8 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid/v5"
-	"github.com/zizouhuweidi/maktaba/internal/httpx"
+	"github.com/labstack/echo/v5"
+	"github.com/zizouhuweidi/maktaba/internal/echox"
 )
 
 const refreshCookieName = "bh_refresh_token"
@@ -22,14 +23,14 @@ type Handler struct {
 }
 
 type registerRequest struct {
-	Email    string `json:"email"`
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Email    string `json:"email" validate:"required,email"`
+	Username string `json:"username" validate:"required,min=3,max=32"`
+	Password string `json:"password" validate:"required,min=12"`
 }
 
 type loginRequest struct {
-	Login    string `json:"login"`
-	Password string `json:"password"`
+	Login    string `json:"login" validate:"required"`
+	Password string `json:"password" validate:"required"`
 }
 
 type refreshRequest struct {
@@ -45,169 +46,158 @@ func NewHandler(service *Service, cookieSecure bool, logger *slog.Logger) *Handl
 	return &Handler{service: service, cookieSecure: cookieSecure, logger: logger, limiter: newRateLimiter(10, time.Minute)}
 }
 
-func (h *Handler) RegisterRoutes(r httpx.Router) {
-	r.Post("/auth/register", h.Register)
-	r.Post("/auth/login", h.Login)
-	r.Post("/auth/refresh", h.Refresh)
-	r.Post("/auth/logout", h.Logout)
+func (h *Handler) RegisterRoutes(e *echo.Echo) {
+	e.POST("/auth/register", h.Register)
+	e.POST("/auth/login", h.Login)
+	e.POST("/auth/refresh", h.Refresh)
+	e.POST("/auth/logout", h.Logout)
 }
 
-func (h *Handler) RegisterProtectedRoutes(r httpx.Router) {
-	r.Get("/me", h.Me)
+func (h *Handler) RegisterProtectedRoutes(g *echo.Group) {
+	g.GET("/me", h.Me)
 }
 
-func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
-	if !h.allowAuthAttempt(w, r, "register") {
-		return
+func (h *Handler) Register(c *echo.Context) error {
+	if err := h.allowAuthAttempt(c, "register"); err != nil {
+		return err
 	}
 
 	var req registerRequest
-	if err := httpx.ReadJSON(r, &req); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
-		return
+	if err := echox.BindAndValidate(c, &req); err != nil {
+		return err
 	}
 
-	user, tokens, err := h.service.Register(r.Context(), req.Email, req.Username, req.Password)
+	user, tokens, err := h.service.Register(c.Request().Context(), req.Email, req.Username, req.Password)
 	if errors.Is(err, ErrInvalidSignup) {
-		httpx.WriteError(w, http.StatusBadRequest, "email, username, and password are required; password must be at least 12 characters")
-		return
+		return echo.NewHTTPError(http.StatusBadRequest, "email, username, and password are required; password must be at least 12 characters")
 	}
 	if err != nil {
 		h.logger.Error("registration failed", "error", err)
-		httpx.WriteError(w, http.StatusConflict, "email or username is unavailable")
-		return
+		return echo.NewHTTPError(http.StatusConflict, "email or username is unavailable")
 	}
 
-	h.setRefreshCookie(w, tokens.RefreshToken)
-	httpx.WriteJSON(w, http.StatusCreated, authResponse{User: user, Tokens: tokens})
+	h.setRefreshCookie(c, tokens.RefreshToken)
+	return c.JSON(http.StatusCreated, authResponse{User: user, Tokens: tokens})
 }
 
-func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
-	if !h.allowAuthAttempt(w, r, "login") {
-		return
+func (h *Handler) Login(c *echo.Context) error {
+	if err := h.allowAuthAttempt(c, "login"); err != nil {
+		return err
 	}
 
 	var req loginRequest
-	if err := httpx.ReadJSON(r, &req); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
-		return
+	if err := echox.BindAndValidate(c, &req); err != nil {
+		return err
 	}
 
-	user, tokens, err := h.service.Login(r.Context(), req.Login, req.Password)
+	user, tokens, err := h.service.Login(c.Request().Context(), req.Login, req.Password)
 	if errors.Is(err, ErrInvalidCredentials) {
-		httpx.WriteError(w, http.StatusUnauthorized, "invalid credentials")
-		return
+		return echo.NewHTTPError(http.StatusUnauthorized, "invalid credentials")
 	}
 	if err != nil {
 		h.logger.Error("login failed", "error", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to login")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to login")
 	}
 
-	h.setRefreshCookie(w, tokens.RefreshToken)
-	httpx.WriteJSON(w, http.StatusOK, authResponse{User: user, Tokens: tokens})
+	h.setRefreshCookie(c, tokens.RefreshToken)
+	return c.JSON(http.StatusOK, authResponse{User: user, Tokens: tokens})
 }
 
-func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
-	if !h.allowAuthAttempt(w, r, "refresh") {
-		return
+func (h *Handler) Refresh(c *echo.Context) error {
+	if err := h.allowAuthAttempt(c, "refresh"); err != nil {
+		return err
 	}
 
 	var token string
 
 	// Accept refresh_token from request body (mobile native apps)
 	var req refreshRequest
-	if err := httpx.ReadJSON(r, &req); err == nil && req.RefreshToken != "" {
+	if err := c.Bind(&req); err == nil && req.RefreshToken != "" {
 		token = req.RefreshToken
 	} else {
 		// Fall back to cookie (web SPA — automatic browser behavior)
-		cookie, err := r.Cookie(refreshCookieName)
+		cookie, err := c.Cookie(refreshCookieName)
 		if err != nil || cookie.Value == "" {
-			httpx.WriteError(w, http.StatusUnauthorized, "refresh token required")
-			return
+			return echo.NewHTTPError(http.StatusUnauthorized, "refresh token required")
 		}
 		token = cookie.Value
 	}
 
-	result, err := h.service.Refresh(r.Context(), token)
+	result, err := h.service.Refresh(c.Request().Context(), token)
 	if errors.Is(err, ErrInvalidRefresh) {
-		h.clearRefreshCookie(w)
-		httpx.WriteError(w, http.StatusUnauthorized, "invalid refresh token")
-		return
+		h.clearRefreshCookie(c)
+		return echo.NewHTTPError(http.StatusUnauthorized, "invalid refresh token")
 	}
 	if err != nil {
 		h.logger.Error("refresh failed", "error", err)
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to refresh token")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to refresh token")
 	}
 
-	h.setRefreshCookie(w, result.RefreshToken)
-	httpx.WriteJSON(w, http.StatusOK, result)
+	h.setRefreshCookie(c, result.RefreshToken)
+	return c.JSON(http.StatusOK, result)
 }
 
-func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) Logout(c *echo.Context) error {
 	var token string
 
 	var req refreshRequest
-	if err := httpx.ReadJSON(r, &req); err == nil && req.RefreshToken != "" {
+	if err := c.Bind(&req); err == nil && req.RefreshToken != "" {
 		token = req.RefreshToken
 	} else {
-		cookie, err := r.Cookie(refreshCookieName)
+		cookie, err := c.Cookie(refreshCookieName)
 		if err == nil && cookie.Value != "" {
 			token = cookie.Value
 		}
 	}
 
 	if token != "" {
-		if err := h.service.Logout(r.Context(), token); err != nil {
+		if err := h.service.Logout(c.Request().Context(), token); err != nil {
 			h.logger.Error("logout failed", "error", err)
 		}
 	}
 
-	h.clearRefreshCookie(w)
-	w.WriteHeader(http.StatusNoContent)
+	h.clearRefreshCookie(c)
+	return c.NoContent(http.StatusNoContent)
 }
 
-func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
-	userID, ok := UserIDFromContext(r.Context())
+func (h *Handler) Me(c *echo.Context) error {
+	userID, ok := UserID(c)
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "authentication required")
-		return
+		return echo.NewHTTPError(http.StatusUnauthorized, "authentication required")
 	}
 
-	user, err := h.service.GetUser(r.Context(), userID)
+	user, err := h.service.GetUser(c.Request().Context(), userID)
 	if err != nil {
-		httpx.WriteError(w, http.StatusNotFound, "user not found")
-		return
+		return echo.NewHTTPError(http.StatusNotFound, "user not found")
 	}
-	httpx.WriteJSON(w, http.StatusOK, user)
+	return c.JSON(http.StatusOK, user)
 }
 
-func (h *Handler) Middleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token, err := httpx.BearerToken(r)
-		if err != nil {
-			httpx.WriteError(w, http.StatusUnauthorized, "authentication required")
-			return
+func (h *Handler) Middleware(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		const prefix = "Bearer "
+		header := c.Request().Header.Get(echo.HeaderAuthorization)
+		if len(header) <= len(prefix) || header[:len(prefix)] != prefix {
+			return echo.NewHTTPError(http.StatusUnauthorized, "authentication required")
 		}
+		token := header[len(prefix):]
 
 		claims, err := h.service.VerifyAccessToken(token)
 		if err != nil {
-			httpx.WriteError(w, http.StatusUnauthorized, "invalid access token")
-			return
+			return echo.NewHTTPError(http.StatusUnauthorized, "invalid access token")
 		}
 		userID, err := uuid.FromString(claims.Subject)
 		if err != nil {
-			httpx.WriteError(w, http.StatusUnauthorized, "invalid access token subject")
-			return
+			return echo.NewHTTPError(http.StatusUnauthorized, "invalid access token subject")
 		}
 
-		next.ServeHTTP(w, r.WithContext(ContextWithUserID(r.Context(), userID)))
-	})
+		SetUserID(c, userID)
+		return next(c)
+	}
 }
 
-func (h *Handler) setRefreshCookie(w http.ResponseWriter, token string) {
-	http.SetCookie(w, &http.Cookie{
+func (h *Handler) setRefreshCookie(c *echo.Context, token string) {
+	c.SetCookie(&http.Cookie{
 		Name:     refreshCookieName,
 		Value:    token,
 		Path:     "/auth/refresh",
@@ -218,20 +208,20 @@ func (h *Handler) setRefreshCookie(w http.ResponseWriter, token string) {
 	})
 }
 
-func (h *Handler) clearRefreshCookie(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{Name: refreshCookieName, Path: "/auth/refresh", MaxAge: -1, HttpOnly: true, Secure: h.cookieSecure, SameSite: http.SameSiteStrictMode})
+func (h *Handler) clearRefreshCookie(c *echo.Context) {
+	c.SetCookie(&http.Cookie{Name: refreshCookieName, Path: "/auth/refresh", MaxAge: -1, HttpOnly: true, Secure: h.cookieSecure, SameSite: http.SameSiteStrictMode})
 }
 
-func (h *Handler) allowAuthAttempt(w http.ResponseWriter, r *http.Request, action string) bool {
-	key := clientIP(r) + ":" + action
+func (h *Handler) allowAuthAttempt(c *echo.Context, action string) error {
+	key := clientIP(c) + ":" + action
 	if h.limiter.allow(key) {
-		return true
+		return nil
 	}
-	httpx.WriteError(w, http.StatusTooManyRequests, "too many attempts")
-	return false
+	return echo.NewHTTPError(http.StatusTooManyRequests, "too many attempts")
 }
 
-func clientIP(r *http.Request) string {
+func clientIP(c *echo.Context) string {
+	r := c.Request()
 	if forwardedFor := r.Header.Get("X-Forwarded-For"); forwardedFor != "" {
 		if host, _, err := net.SplitHostPort(forwardedFor); err == nil {
 			return host

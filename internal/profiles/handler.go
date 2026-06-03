@@ -5,8 +5,9 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/labstack/echo/v5"
 	"github.com/zizouhuweidi/maktaba/internal/auth"
-	"github.com/zizouhuweidi/maktaba/internal/httpx"
+	"github.com/zizouhuweidi/maktaba/internal/echox"
 )
 
 type Handler struct {
@@ -24,76 +25,67 @@ type UpdateRequest struct {
 	PublicProfile *bool   `json:"public_profile,omitempty"`
 }
 
-func (h *Handler) RegisterPublicRoutes(r httpx.Router) {
-	r.Get("/users/:username/profile", h.GetPublicByUsername)
+func (h *Handler) RegisterPublicRoutes(e *echo.Echo) {
+	e.GET("/users/:username/profile", h.GetPublicByUsername)
 }
 
-func (h *Handler) RegisterProtectedRoutes(r httpx.Router) {
-	r.Get("/profile", h.GetOwn)
-	r.Put("/profile", h.Update)
+func (h *Handler) RegisterProtectedRoutes(g *echo.Group) {
+	g.GET("/profile", h.GetOwn)
+	g.PUT("/profile", h.Update)
 }
 
-func (h *Handler) GetOwn(w http.ResponseWriter, r *http.Request) {
-	userID, ok := auth.UserIDFromContext(r.Context())
+func (h *Handler) GetOwn(c *echo.Context) error {
+	userID, ok := auth.UserID(c)
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "authentication required")
-		return
+		return echo.NewHTTPError(http.StatusUnauthorized, "authentication required")
 	}
 
-	profile, err := h.service.GetOwn(r.Context(), userID)
+	profile, err := h.service.GetOwn(c.Request().Context(), userID)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to get profile")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get profile")
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, profile)
+	return c.JSON(http.StatusOK, profile)
 }
 
-func (h *Handler) GetPublicByUsername(w http.ResponseWriter, r *http.Request) {
-	profile, err := h.service.GetPublicByUsername(r.Context(), r.PathValue("username"))
+func (h *Handler) GetPublicByUsername(c *echo.Context) error {
+	profile, err := h.service.GetPublicByUsername(c.Request().Context(), c.Param("username"))
 	if errors.Is(err, ErrInvalidProfile) {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid username")
-		return
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid username")
 	}
 	if errors.Is(err, ErrProfileNotFound) {
-		httpx.WriteError(w, http.StatusNotFound, "profile not found")
-		return
+		return echo.NewHTTPError(http.StatusNotFound, "profile not found")
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to get profile")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get profile")
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, profile)
+	return c.JSON(http.StatusOK, profile)
 }
 
-func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
-	userID, ok := auth.UserIDFromContext(r.Context())
+func (h *Handler) Update(c *echo.Context) error {
+	userID, ok := auth.UserID(c)
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "authentication required")
-		return
+		return echo.NewHTTPError(http.StatusUnauthorized, "authentication required")
 	}
 
 	var req UpdateRequest
-	if err := httpx.ReadJSON(r, &req); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
-		return
+	if err := echox.BindAndValidate(c, &req); err != nil {
+		return err
 	}
 
-	profile, err := h.service.Update(r.Context(), UpdateProfileParams{
+	profile, err := h.service.Update(c.Request().Context(), UpdateProfileParams{
 		UserID:        userID,
 		DisplayName:   req.DisplayName,
 		Bio:           req.Bio,
 		PublicProfile: req.PublicProfile,
 	})
 	if errors.Is(err, ErrInvalidProfile) {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid profile")
-		return
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid profile")
 	}
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to update profile")
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to update profile")
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, profile)
+	return c.JSON(http.StatusOK, profile)
 }

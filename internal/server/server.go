@@ -11,8 +11,8 @@ import (
 	"github.com/zizouhuweidi/maktaba/internal/collections"
 	"github.com/zizouhuweidi/maktaba/internal/config"
 	"github.com/zizouhuweidi/maktaba/internal/db"
+	"github.com/zizouhuweidi/maktaba/internal/echox"
 	"github.com/zizouhuweidi/maktaba/internal/health"
-	"github.com/zizouhuweidi/maktaba/internal/httpx"
 	"github.com/zizouhuweidi/maktaba/internal/library"
 	"github.com/zizouhuweidi/maktaba/internal/notes"
 	"github.com/zizouhuweidi/maktaba/internal/profiles"
@@ -52,6 +52,7 @@ func New(cfg *config.Config, database *db.DB, logger *slog.Logger) (*http.Server
 
 	e := echo.New()
 	e.Logger = logger
+	e.Validator = newRequestValidator()
 	e.IPExtractor = echo.LegacyIPExtractor()
 	e.HTTPErrorHandler = echoErrorHandler(logger)
 	e.Use(middleware.RequestID())
@@ -76,17 +77,18 @@ func New(cfg *config.Config, database *db.DB, logger *slog.Logger) (*http.Server
 		},
 	}))
 
-	router := httpx.NewEchoRouter(e)
-	router.Get("/health", health.Handler)
-	router.Get("/ready", health.ReadyHandler(database))
-	authHndlr.RegisterRoutes(router)
-	collectionHndlr.RegisterPublicRoutes(router)
-	libraryHndlr.RegisterPublicRoutes(router)
-	sourceHndlr.RegisterPublicRoutes(router)
-	noteHndlr.RegisterPublicRoutes(router)
-	profileHndlr.RegisterPublicRoutes(router)
-	reviewHndlr.RegisterPublicRoutes(router)
-	protected := httpx.NewEchoRouter(e.Group("/api", echo.WrapMiddleware(authHndlr.Middleware)))
+	e.GET("/health", health.Handler)
+	e.GET("/ready", health.ReadyHandler(database))
+	authHndlr.RegisterRoutes(e)
+	collectionHndlr.RegisterPublicRoutes(e)
+	libraryHndlr.RegisterPublicRoutes(e)
+	sourceHndlr.RegisterPublicRoutes(e)
+	noteHndlr.RegisterPublicRoutes(e)
+	profileHndlr.RegisterPublicRoutes(e)
+	reviewHndlr.RegisterPublicRoutes(e)
+
+	protected := e.Group("/api")
+	protected.Use(authHndlr.Middleware)
 	authHndlr.RegisterProtectedRoutes(protected)
 	collectionHndlr.RegisterProtectedRoutes(protected)
 	libraryHndlr.RegisterProtectedRoutes(protected)
@@ -121,7 +123,7 @@ func echoErrorHandler(logger *slog.Logger) echo.HTTPErrorHandler {
 			logger.Error("request failed", "error", err)
 		}
 
-		if jsonErr := c.JSON(status, httpx.ErrorResponse{Error: message}); jsonErr != nil {
+		if jsonErr := c.JSON(status, echox.ErrorResponse{Error: message}); jsonErr != nil {
 			logger.Error("failed to write error response", "error", jsonErr)
 		}
 	}

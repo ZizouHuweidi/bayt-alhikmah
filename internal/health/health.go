@@ -2,10 +2,10 @@ package health
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"time"
 
+	"github.com/labstack/echo/v5"
 	"github.com/zizouhuweidi/maktaba/internal/db"
 )
 
@@ -13,25 +13,19 @@ type Response struct {
 	Status string `json:"status"`
 }
 
-func Handler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(Response{Status: "ok"})
+func Handler(c *echo.Context) error {
+	return c.JSON(http.StatusOK, Response{Status: "ok"})
 }
 
-func ReadyHandler(database *db.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+func ReadyHandler(database *db.DB) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		ctx, cancel := context.WithTimeout(c.Request().Context(), 2*time.Second)
 		defer cancel()
 
-		w.Header().Set("Content-Type", "application/json")
 		if err := database.Ping(ctx); err != nil {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_ = json.NewEncoder(w).Encode(Response{Status: "unavailable"})
-			return
+			return c.JSON(http.StatusServiceUnavailable, Response{Status: "unavailable"})
 		}
 
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(Response{Status: "ready"})
+		return c.JSON(http.StatusOK, Response{Status: "ready"})
 	}
 }
