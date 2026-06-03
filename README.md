@@ -1,6 +1,6 @@
 # Bayt al Hikmah
 
-Bayt al Hikmah is a personal knowledge library for collecting, tracking, annotating, and reviewing sources such as books and future learning media.
+Bayt al Hikmah is a personal knowledge library for collecting, tracking, annotating, and reviewing sources such as books and other learning media.
 
 The MVP focuses on helping a reader build a library, track reading progress, write notes and reviews, organize sources into collections, and publish a lightweight public profile.
 
@@ -11,15 +11,11 @@ The MVP focuses on helping a reader build a library, track reading progress, wri
 - Personal library tracking with status, progress, and visibility.
 - Notes, reviews, and collections for organizing learning.
 - Public profiles and public library views.
-- Demo seed data for local testing.
-- Bruno API collection for local API exploration.
 
 ## Stack
 
-- Backend: Go, Echo, PostgreSQL, pgx/pgxpool.
-- Database: Goose migrations, sqlc-generated query code, UUID v7 IDs.
-- Auth: Argon2id password hashes, Ed25519 JWT access tokens, opaque refresh tokens.
-- Frontend: React Router SPA, React Query, Zustand, React Hook Form, Zod, Tailwind/shadcn-style UI, Biome.
+- Backend: Go, Echo, PostgreSQL, pgx and sqlc.
+- Frontend: React, React Router and Tailwind.
 - Tooling: Podman Compose, Containerfiles, justfile commands.
 
 ## Local Development
@@ -65,9 +61,6 @@ Useful URLs:
 
 - Schema changes live in `migrations/` and are applied with Goose through `cmd/migrate`.
 - Application queries live in `internal/db/queries/` and generate Go code with sqlc.
-- sqlc reads the migrations as schema input, but it does not apply migrations.
-- sqlc runs through a container, so a local `sqlc` binary is not required.
-- Goose is used as a Go library through `go run ./cmd/migrate`, so a local `goose` binary is not required.
 
 ## API Exploration
 
