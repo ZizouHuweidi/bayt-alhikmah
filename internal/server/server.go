@@ -1,17 +1,18 @@
 package server
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
-	"runtime/debug"
-	"slices"
-	"time"
 
+	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
 	"github.com/zizouhuweidi/maktaba/internal/auth"
 	"github.com/zizouhuweidi/maktaba/internal/collections"
 	"github.com/zizouhuweidi/maktaba/internal/config"
 	"github.com/zizouhuweidi/maktaba/internal/db"
 	"github.com/zizouhuweidi/maktaba/internal/health"
+	"github.com/zizouhuweidi/maktaba/internal/httpx"
 	"github.com/zizouhuweidi/maktaba/internal/library"
 	"github.com/zizouhuweidi/maktaba/internal/notes"
 	"github.com/zizouhuweidi/maktaba/internal/profiles"
@@ -49,99 +50,79 @@ func New(cfg *config.Config, database *db.DB, logger *slog.Logger) (*http.Server
 	profileHndlr := profiles.NewHandler(profileSvc, logger)
 	reviewHndlr := reviews.NewHandler(reviewSvc, logger)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", health.Handler)
-	mux.HandleFunc("GET /ready", health.ReadyHandler(database))
-	authHndlr.RegisterRoutes(mux)
-	authHndlr.RegisterProtectedRoutes(mux)
-	collectionHndlr.RegisterPublicRoutes(mux)
-	libraryHndlr.RegisterPublicRoutes(mux)
-	sourceHndlr.RegisterPublicRoutes(mux)
-	noteHndlr.RegisterPublicRoutes(mux)
-	profileHndlr.RegisterPublicRoutes(mux)
-	reviewHndlr.RegisterPublicRoutes(mux)
-	collectionHndlr.RegisterProtectedRoutes(mux, authHndlr.Middleware)
-	libraryHndlr.RegisterProtectedRoutes(mux, authHndlr.Middleware)
-	sourceHndlr.RegisterProtectedRoutes(mux, authHndlr.Middleware)
-	noteHndlr.RegisterProtectedRoutes(mux, authHndlr.Middleware)
-	profileHndlr.RegisterProtectedRoutes(mux, authHndlr.Middleware)
-	reviewHndlr.RegisterProtectedRoutes(mux, authHndlr.Middleware)
+	e := echo.New()
+	e.Logger = logger
+	e.IPExtractor = echo.LegacyIPExtractor()
+	e.HTTPErrorHandler = echoErrorHandler(logger)
+	e.Use(middleware.RequestID())
+	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+		AllowOrigins:     cfg.Server.CORSAllowedOrigins,
+		AllowMethods:     []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions},
+		AllowHeaders:     []string{"Content-Type", "Authorization"},
+		AllowCredentials: true,
+	}))
+	e.Use(middleware.RecoverWithConfig(middleware.RecoverConfig{DisableStackAll: true}))
+	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
+		LogLatency:      true,
+		LogMethod:       true,
+		LogURIPath:      true,
+		LogRoutePath:    true,
+		LogRequestID:    true,
+		LogStatus:       true,
+		LogResponseSize: true,
+		LogValuesFunc: func(c *echo.Context, v middleware.RequestLoggerValues) error {
+			logger.Info("request completed", "method", v.Method, "path", v.URIPath, "route", v.RoutePath, "status", v.Status, "bytes", v.ResponseSize, "duration", v.Latency, "request_id", v.RequestID)
+			return nil
+		},
+	}))
 
-	handler := recoverMiddleware(logger)(corsMiddleware(cfg.Server.CORSAllowedOrigins)(loggingMiddleware(logger)(mux)))
+	router := httpx.NewEchoRouter(e)
+	router.Get("/health", health.Handler)
+	router.Get("/ready", health.ReadyHandler(database))
+	authHndlr.RegisterRoutes(router)
+	collectionHndlr.RegisterPublicRoutes(router)
+	libraryHndlr.RegisterPublicRoutes(router)
+	sourceHndlr.RegisterPublicRoutes(router)
+	noteHndlr.RegisterPublicRoutes(router)
+	profileHndlr.RegisterPublicRoutes(router)
+	reviewHndlr.RegisterPublicRoutes(router)
+	protected := httpx.NewEchoRouter(e.Group("/api", echo.WrapMiddleware(authHndlr.Middleware)))
+	authHndlr.RegisterProtectedRoutes(protected)
+	collectionHndlr.RegisterProtectedRoutes(protected)
+	libraryHndlr.RegisterProtectedRoutes(protected)
+	sourceHndlr.RegisterProtectedRoutes(protected)
+	noteHndlr.RegisterProtectedRoutes(protected)
+	profileHndlr.RegisterProtectedRoutes(protected)
+	reviewHndlr.RegisterProtectedRoutes(protected)
 
 	return &http.Server{
 		Addr:         ":" + cfg.Server.Port,
-		Handler:      handler,
+		Handler:      e,
 		ReadTimeout:  cfg.Server.ReadTimeout,
 		WriteTimeout: cfg.Server.WriteTimeout,
 	}, nil
 }
 
-type statusRecorder struct {
-	http.ResponseWriter
-	status int
-	bytes  int
-}
+func echoErrorHandler(logger *slog.Logger) echo.HTTPErrorHandler {
+	return func(c *echo.Context, err error) {
+		if response, ok := c.Response().(*echo.Response); ok && response.Committed {
+			return
+		}
 
-func (r *statusRecorder) WriteHeader(status int) {
-	r.status = status
-	r.ResponseWriter.WriteHeader(status)
-}
+		status := http.StatusInternalServerError
+		message := "internal server error"
 
-func (r *statusRecorder) Write(data []byte) (int, error) {
-	if r.status == 0 {
-		r.status = http.StatusOK
-	}
-	n, err := r.ResponseWriter.Write(data)
-	r.bytes += n
-	return n, err
-}
+		var httpError *echo.HTTPError
+		if errors.As(err, &httpError) {
+			status = httpError.Code
+			message = httpError.Message
+		}
+		if status >= http.StatusInternalServerError {
+			logger.Error("request failed", "error", err)
+		}
 
-func loggingMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			start := time.Now()
-			recorder := &statusRecorder{ResponseWriter: w}
-			next.ServeHTTP(recorder, r)
-			status := recorder.status
-			if status == 0 {
-				status = http.StatusOK
-			}
-			logger.Info("request completed", "method", r.Method, "path", r.URL.Path, "status", status, "bytes", recorder.bytes, "duration", time.Since(start))
-		})
-	}
-}
-
-func recoverMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			defer func() {
-				if recovered := recover(); recovered != nil {
-					logger.Error("panic recovered", "panic", recovered, "stack", string(debug.Stack()))
-					http.Error(w, "internal server error", http.StatusInternalServerError)
-				}
-			}()
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-func corsMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			origin := r.Header.Get("Origin")
-			if origin != "" && slices.Contains(allowedOrigins, origin) {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Vary", "Origin")
-				w.Header().Set("Access-Control-Allow-Credentials", "true")
-				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			}
-			if r.Method == http.MethodOptions {
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
+		if jsonErr := c.JSON(status, httpx.ErrorResponse{Error: message}); jsonErr != nil {
+			logger.Error("failed to write error response", "error", jsonErr)
+		}
 	}
 }

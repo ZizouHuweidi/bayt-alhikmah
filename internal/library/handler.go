@@ -39,18 +39,18 @@ func NewHandler(service *Service, logger *slog.Logger) *Handler {
 	return &Handler{service: service, logger: logger}
 }
 
-func (h *Handler) RegisterPublicRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /users/{user}/library", h.ListPublicLibrary)
-	mux.HandleFunc("GET /users/{user}/library/with-sources", h.ListPublicLibraryWithSources)
+func (h *Handler) RegisterPublicRoutes(r httpx.Router) {
+	r.Get("/users/:user/library", h.ListPublicLibrary)
+	r.Get("/users/:user/library/with-sources", h.ListPublicLibraryWithSources)
 }
 
-func (h *Handler) RegisterProtectedRoutes(mux *http.ServeMux, middleware func(http.Handler) http.Handler) {
-	mux.Handle("POST /api/library/items", middleware(http.HandlerFunc(h.Create)))
-	mux.Handle("GET /api/library/items", middleware(http.HandlerFunc(h.ListMine)))
-	mux.Handle("GET /api/library/items/with-sources", middleware(http.HandlerFunc(h.ListMineWithSources)))
-	mux.Handle("GET /api/library/items/{id}", middleware(http.HandlerFunc(h.GetMine)))
-	mux.Handle("PUT /api/library/items/{id}", middleware(http.HandlerFunc(h.Update)))
-	mux.Handle("DELETE /api/library/items/{id}", middleware(http.HandlerFunc(h.Delete)))
+func (h *Handler) RegisterProtectedRoutes(r httpx.Router) {
+	r.Post("/library/items", h.Create)
+	r.Get("/library/items", h.ListMine)
+	r.Get("/library/items/with-sources", h.ListMineWithSources)
+	r.Get("/library/items/:id", h.GetMine)
+	r.Put("/library/items/:id", h.Update)
+	r.Delete("/library/items/:id", h.Delete)
 }
 
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {

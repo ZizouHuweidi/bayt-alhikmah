@@ -60,18 +60,18 @@ type CreateBookRequest struct {
 	Contributors []ContributorInput `json:"contributors,omitempty"`
 }
 
-func (h *Handler) RegisterPublicRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /sources", h.List)
-	mux.HandleFunc("GET /sources/search", h.Search)
-	mux.HandleFunc("GET /sources/books/{id}", h.GetBookByID)
-	mux.HandleFunc("GET /sources/{id}", h.GetByID)
+func (h *Handler) RegisterPublicRoutes(r httpx.Router) {
+	r.Get("/sources", h.List)
+	r.Get("/sources/search", h.Search)
+	r.Get("/sources/books/:id", h.GetBookByID)
+	r.Get("/sources/:id", h.GetByID)
 }
 
-func (h *Handler) RegisterProtectedRoutes(mux *http.ServeMux, middleware func(http.Handler) http.Handler) {
-	mux.Handle("POST /api/sources", middleware(http.HandlerFunc(h.Create)))
-	mux.Handle("POST /api/sources/books", middleware(http.HandlerFunc(h.CreateBook)))
-	mux.Handle("PUT /api/sources/{id}", middleware(http.HandlerFunc(h.Update)))
-	mux.Handle("DELETE /api/sources/{id}", middleware(http.HandlerFunc(h.Delete)))
+func (h *Handler) RegisterProtectedRoutes(r httpx.Router) {
+	r.Post("/sources", h.Create)
+	r.Post("/sources/books", h.CreateBook)
+	r.Put("/sources/:id", h.Update)
+	r.Delete("/sources/:id", h.Delete)
 }
 
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {

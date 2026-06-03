@@ -45,15 +45,15 @@ func NewHandler(service *Service, cookieSecure bool, logger *slog.Logger) *Handl
 	return &Handler{service: service, cookieSecure: cookieSecure, logger: logger, limiter: newRateLimiter(10, time.Minute)}
 }
 
-func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /auth/register", h.Register)
-	mux.HandleFunc("POST /auth/login", h.Login)
-	mux.HandleFunc("POST /auth/refresh", h.Refresh)
-	mux.HandleFunc("POST /auth/logout", h.Logout)
+func (h *Handler) RegisterRoutes(r httpx.Router) {
+	r.Post("/auth/register", h.Register)
+	r.Post("/auth/login", h.Login)
+	r.Post("/auth/refresh", h.Refresh)
+	r.Post("/auth/logout", h.Logout)
 }
 
-func (h *Handler) RegisterProtectedRoutes(mux *http.ServeMux) {
-	mux.Handle("GET /api/me", h.Middleware(http.HandlerFunc(h.Me)))
+func (h *Handler) RegisterProtectedRoutes(r httpx.Router) {
+	r.Get("/me", h.Me)
 }
 
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {

@@ -24,13 +24,13 @@ type UpdateRequest struct {
 	PublicProfile *bool   `json:"public_profile,omitempty"`
 }
 
-func (h *Handler) RegisterPublicRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /users/{username}/profile", h.GetPublicByUsername)
+func (h *Handler) RegisterPublicRoutes(r httpx.Router) {
+	r.Get("/users/:username/profile", h.GetPublicByUsername)
 }
 
-func (h *Handler) RegisterProtectedRoutes(mux *http.ServeMux, middleware func(http.Handler) http.Handler) {
-	mux.Handle("GET /api/profile", middleware(http.HandlerFunc(h.GetOwn)))
-	mux.Handle("PUT /api/profile", middleware(http.HandlerFunc(h.Update)))
+func (h *Handler) RegisterProtectedRoutes(r httpx.Router) {
+	r.Get("/profile", h.GetOwn)
+	r.Put("/profile", h.Update)
 }
 
 func (h *Handler) GetOwn(w http.ResponseWriter, r *http.Request) {

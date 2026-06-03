@@ -36,16 +36,16 @@ type UpdateRequest struct {
 	Tags        []string `json:"tags,omitempty"`
 }
 
-func (h *Handler) RegisterPublicRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /notes", h.List)
-	mux.HandleFunc("GET /notes/{id}", h.GetByID)
+func (h *Handler) RegisterPublicRoutes(r httpx.Router) {
+	r.Get("/notes", h.List)
+	r.Get("/notes/:id", h.GetByID)
 }
 
-func (h *Handler) RegisterProtectedRoutes(mux *http.ServeMux, middleware func(http.Handler) http.Handler) {
-	mux.Handle("POST /api/notes", middleware(http.HandlerFunc(h.Create)))
-	mux.Handle("GET /api/notes", middleware(http.HandlerFunc(h.ListMine)))
-	mux.Handle("PUT /api/notes/{id}", middleware(http.HandlerFunc(h.Update)))
-	mux.Handle("DELETE /api/notes/{id}", middleware(http.HandlerFunc(h.Delete)))
+func (h *Handler) RegisterProtectedRoutes(r httpx.Router) {
+	r.Post("/notes", h.Create)
+	r.Get("/notes", h.ListMine)
+	r.Put("/notes/:id", h.Update)
+	r.Delete("/notes/:id", h.Delete)
 }
 
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {

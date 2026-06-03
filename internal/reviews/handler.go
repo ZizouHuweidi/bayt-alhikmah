@@ -32,16 +32,16 @@ type UpdateRequest struct {
 	IsPublic *bool   `json:"is_public,omitempty"`
 }
 
-func (h *Handler) RegisterPublicRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /reviews", h.List)
-	mux.HandleFunc("GET /reviews/{id}", h.GetByID)
+func (h *Handler) RegisterPublicRoutes(r httpx.Router) {
+	r.Get("/reviews", h.List)
+	r.Get("/reviews/:id", h.GetByID)
 }
 
-func (h *Handler) RegisterProtectedRoutes(mux *http.ServeMux, middleware func(http.Handler) http.Handler) {
-	mux.Handle("POST /api/reviews", middleware(http.HandlerFunc(h.Create)))
-	mux.Handle("GET /api/reviews", middleware(http.HandlerFunc(h.ListOwn)))
-	mux.Handle("PUT /api/reviews/{id}", middleware(http.HandlerFunc(h.Update)))
-	mux.Handle("DELETE /api/reviews/{id}", middleware(http.HandlerFunc(h.Delete)))
+func (h *Handler) RegisterProtectedRoutes(r httpx.Router) {
+	r.Post("/reviews", h.Create)
+	r.Get("/reviews", h.ListOwn)
+	r.Put("/reviews/:id", h.Update)
+	r.Delete("/reviews/:id", h.Delete)
 }
 
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {

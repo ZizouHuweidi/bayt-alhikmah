@@ -33,16 +33,16 @@ type UpdateRequest struct {
 	SourceIDs   []string `json:"source_ids,omitempty"`
 }
 
-func (h *Handler) RegisterPublicRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /collections", h.List)
-	mux.HandleFunc("GET /collections/{id}", h.GetByID)
+func (h *Handler) RegisterPublicRoutes(r httpx.Router) {
+	r.Get("/collections", h.List)
+	r.Get("/collections/:id", h.GetByID)
 }
 
-func (h *Handler) RegisterProtectedRoutes(mux *http.ServeMux, middleware func(http.Handler) http.Handler) {
-	mux.Handle("POST /api/collections", middleware(http.HandlerFunc(h.Create)))
-	mux.Handle("GET /api/collections", middleware(http.HandlerFunc(h.ListOwn)))
-	mux.Handle("PUT /api/collections/{id}", middleware(http.HandlerFunc(h.Update)))
-	mux.Handle("DELETE /api/collections/{id}", middleware(http.HandlerFunc(h.Delete)))
+func (h *Handler) RegisterProtectedRoutes(r httpx.Router) {
+	r.Post("/collections", h.Create)
+	r.Get("/collections", h.ListOwn)
+	r.Put("/collections/:id", h.Update)
+	r.Delete("/collections/:id", h.Delete)
 }
 
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
