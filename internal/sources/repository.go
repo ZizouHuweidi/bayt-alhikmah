@@ -4,58 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"time"
 
 	"github.com/gofrs/uuid/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/zizouhuweidi/maktaba/internal/db"
+	"github.com/zizouhuweidi/maktaba/internal/db/dbgen"
 )
 
 type postgresRepository struct {
-	db *db.DB
-}
-
-type sourceRow struct {
-	ID          pgtype.UUID
-	Title       string
-	Subtitle    pgtype.Text
-	Type        string
-	Description pgtype.Text
-	Publisher   pgtype.Text
-	ISBN        pgtype.Text
-	DOI         pgtype.Text
-	URL         pgtype.Text
-	ExternalID  pgtype.Text
-	Tags        []byte
-	PublishedAt pgtype.Timestamptz
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-}
-
-type bookMetadataRow struct {
-	SourceID  pgtype.UUID
-	ISBN10    pgtype.Text
-	ISBN13    pgtype.Text
-	Publisher pgtype.Text
-	PageCount pgtype.Int4
-	Language  pgtype.Text
-	CoverURL  pgtype.Text
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
-
-type contributorRow struct {
-	ID        pgtype.UUID
-	Name      string
-	Role      string
-	Position  int
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	db      *db.DB
+	queries *dbgen.Queries
 }
 
 func NewPostgresRepository(d *db.DB) Repository {
-	return &postgresRepository{db: d}
+	return &postgresRepository{db: d, queries: dbgen.New(d.Pool)}
 }
 
 func (r *postgresRepository) Create(ctx context.Context, s *Source) (*Source, error) {
@@ -68,16 +31,24 @@ func (r *postgresRepository) Create(ctx context.Context, s *Source) (*Source, er
 		return nil, err
 	}
 
-	row, err := scanSource(r.db.QueryRow(ctx, `
-		INSERT INTO sources (id, title, subtitle, type, description, publisher, isbn, doi, url, external_id, tags, published_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-		RETURNING id, title, subtitle, type, description, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
-	`, id.String(), s.Title, s.Subtitle, string(s.Type), s.Description, s.Publisher, s.ISBN, s.DOI, s.URL, s.ExternalID, tags, s.PublishedAt))
+	row, err := r.queries.CreateSource(ctx, dbgen.CreateSourceParams{
+		ID:          db.PGUUID(id),
+		Title:       s.Title,
+		Subtitle:    db.PGText(s.Subtitle),
+		Type:        string(s.Type),
+		Description: db.PGText(s.Description),
+		Publisher:   db.PGText(s.Publisher),
+		Isbn:        db.PGText(s.ISBN),
+		Doi:         db.PGText(s.DOI),
+		Url:         db.PGText(s.URL),
+		ExternalID:  db.PGText(s.ExternalID),
+		Tags:        tags,
+		PublishedAt: db.PGTimestamptzPtr(s.PublishedAt),
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	return r.mapRow(row), nil
+	return mapSource(row), nil
 }
 
 func (r *postgresRepository) CreateBook(ctx context.Context, params CreateBookParams) (*Book, error) {
@@ -86,6 +57,7 @@ func (r *postgresRepository) CreateBook(ctx context.Context, params CreateBookPa
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
+	qtx := r.queries.WithTx(tx)
 
 	sourceID, err := uuid.NewV7()
 	if err != nil {
@@ -96,20 +68,32 @@ func (r *postgresRepository) CreateBook(ctx context.Context, params CreateBookPa
 		return nil, err
 	}
 
-	sourceRow, err := scanSource(tx.QueryRow(ctx, `
-		INSERT INTO sources (id, title, subtitle, type, description, publisher, isbn, url, external_id, tags, published_at)
-		VALUES ($1, $2, $3, 'book', $4, $5, COALESCE($6, $7), $8, $9, $10, $11)
-		RETURNING id, title, subtitle, type, description, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
-	`, sourceID.String(), params.Title, params.Subtitle, params.Description, params.Publisher, params.ISBN13, params.ISBN10, params.URL, params.ExternalID, tags, params.PublishedAt))
+	sourceRow, err := qtx.InsertBookSource(ctx, dbgen.InsertBookSourceParams{
+		ID:          db.PGUUID(sourceID),
+		Title:       params.Title,
+		Subtitle:    db.PGText(params.Subtitle),
+		Description: db.PGText(params.Description),
+		Publisher:   db.PGText(params.Publisher),
+		Column6:     db.PGText(params.ISBN13),
+		Column7:     db.PGText(params.ISBN10),
+		Url:         db.PGText(params.URL),
+		ExternalID:  db.PGText(params.ExternalID),
+		Tags:        tags,
+		PublishedAt: db.PGTimestamptzPtr(params.PublishedAt),
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	metadataRow, err := scanBookMetadata(tx.QueryRow(ctx, `
-		INSERT INTO book_metadata (source_id, isbn_10, isbn_13, publisher, page_count, language, cover_url)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING source_id, isbn_10, isbn_13, publisher, page_count, language, cover_url, created_at, updated_at
-	`, sourceID.String(), params.ISBN10, params.ISBN13, params.Publisher, params.PageCount, params.Language, params.CoverURL))
+	metadataRow, err := qtx.InsertBookMetadata(ctx, dbgen.InsertBookMetadataParams{
+		SourceID:  db.PGUUID(sourceID),
+		Isbn10:    db.PGText(params.ISBN10),
+		Isbn13:    db.PGText(params.ISBN13),
+		Publisher: db.PGText(params.Publisher),
+		PageCount: db.PGInt4Ptr(params.PageCount),
+		Language:  db.PGText(params.Language),
+		CoverUrl:  db.PGText(params.CoverURL),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -120,60 +104,46 @@ func (r *postgresRepository) CreateBook(ctx context.Context, params CreateBookPa
 		if role == "" {
 			role = "author"
 		}
-
 		contributorID, err := uuid.NewV7()
 		if err != nil {
 			return nil, err
 		}
-		var existingID pgtype.UUID
-		err = tx.QueryRow(ctx, `
-			INSERT INTO contributors (id, name)
-			VALUES ($1, $2)
-			ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
-			RETURNING id
-		`, contributorID.String(), contributor.Name).Scan(&existingID)
+		existingID, err := qtx.UpsertContributor(ctx, dbgen.UpsertContributorParams{ID: db.PGUUID(contributorID), Name: contributor.Name})
 		if err != nil {
 			return nil, err
 		}
-
-		row, err := scanContributor(tx.QueryRow(ctx, `
-			INSERT INTO source_contributors (source_id, contributor_id, role, position)
-			VALUES ($1, $2, $3, $4)
-			RETURNING contributor_id, $5::text, role, position, NOW(), NOW()
-		`, sourceID.String(), uuid.UUID(existingID.Bytes).String(), role, position, contributor.Name))
+		row, err := qtx.InsertSourceContributor(ctx, dbgen.InsertSourceContributorParams{
+			SourceID:        db.PGUUID(sourceID),
+			ContributorID:   existingID,
+			Role:            role,
+			Position:        int32(position),
+			ContributorName: contributor.Name,
+		})
 		if err != nil {
 			return nil, err
 		}
-		contributors = append(contributors, mapContributor(row))
+		contributors = append(contributors, mapInsertedContributor(row))
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
-
-	return &Book{Source: r.mapRow(sourceRow), Metadata: mapBookMetadata(metadataRow), Contributors: contributors}, nil
+	return &Book{Source: mapSource(sourceRow), Metadata: mapBookMetadata(metadataRow), Contributors: contributors}, nil
 }
 
 func (r *postgresRepository) GetByID(ctx context.Context, id uuid.UUID) (*Source, error) {
-	row, err := scanSource(r.db.QueryRow(ctx, `
-		SELECT id, title, subtitle, type, description, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
-		FROM sources WHERE id = $1 LIMIT 1
-	`, id.String()))
+	row, err := r.queries.GetSourceByID(ctx, db.PGUUID(id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-
-	return r.mapRow(row), nil
+	return mapSource(row), nil
 }
 
 func (r *postgresRepository) GetBookByID(ctx context.Context, id uuid.UUID) (*Book, error) {
-	sourceRow, err := scanSource(r.db.QueryRow(ctx, `
-		SELECT id, title, subtitle, type, description, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
-		FROM sources WHERE id = $1 AND type = 'book' LIMIT 1
-	`, id.String()))
+	sourceRow, err := r.queries.GetBookSourceByID(ctx, db.PGUUID(id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -181,49 +151,34 @@ func (r *postgresRepository) GetBookByID(ctx context.Context, id uuid.UUID) (*Bo
 		return nil, err
 	}
 
-	metadataRow, err := scanBookMetadata(r.db.QueryRow(ctx, `
-		SELECT source_id, isbn_10, isbn_13, publisher, page_count, language, cover_url, created_at, updated_at
-		FROM book_metadata WHERE source_id = $1 LIMIT 1
-	`, id.String()))
+	metadataRow, err := r.queries.GetBookMetadata(ctx, db.PGUUID(id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return &Book{Source: r.mapRow(sourceRow)}, nil
+		return &Book{Source: mapSource(sourceRow)}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-
 	contributors, err := r.listContributors(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-
-	return &Book{Source: r.mapRow(sourceRow), Metadata: mapBookMetadata(metadataRow), Contributors: contributors}, nil
+	return &Book{Source: mapSource(sourceRow), Metadata: mapBookMetadata(metadataRow), Contributors: contributors}, nil
 }
 
 func (r *postgresRepository) List(ctx context.Context, limit, offset int) ([]*Source, error) {
-	rows, err := r.db.Query(ctx, `
-		SELECT id, title, subtitle, type, description, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
-		FROM sources ORDER BY created_at DESC LIMIT $1 OFFSET $2
-	`, limit, offset)
+	rows, err := r.queries.ListSources(ctx, dbgen.ListSourcesParams{Limit: int32(limit), Offset: int32(offset)})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	return r.scanRows(rows)
+	return mapSources(rows), nil
 }
 
 func (r *postgresRepository) ListByType(ctx context.Context, sourceType SourceType, limit, offset int) ([]*Source, error) {
-	rows, err := r.db.Query(ctx, `
-		SELECT id, title, subtitle, type, description, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
-		FROM sources WHERE type = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3
-	`, string(sourceType), limit, offset)
+	rows, err := r.queries.ListSourcesByType(ctx, dbgen.ListSourcesByTypeParams{Type: string(sourceType), Limit: int32(limit), Offset: int32(offset)})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	return r.scanRows(rows)
+	return mapSources(rows), nil
 }
 
 func (r *postgresRepository) Update(ctx context.Context, s *Source) (*Source, error) {
@@ -231,223 +186,120 @@ func (r *postgresRepository) Update(ctx context.Context, s *Source) (*Source, er
 	if err != nil {
 		return nil, err
 	}
-
-	row, err := scanSource(r.db.QueryRow(ctx, `
-		UPDATE sources
-		SET title = $2, subtitle = $3, type = $4, description = $5, publisher = $6,
-			isbn = $7, doi = $8, url = $9, external_id = $10, tags = $11, published_at = $12, updated_at = NOW()
-		WHERE id = $1
-		RETURNING id, title, subtitle, type, description, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
-	`, s.ID.String(), s.Title, s.Subtitle, string(s.Type), s.Description, s.Publisher, s.ISBN, s.DOI, s.URL, s.ExternalID, tags, s.PublishedAt))
+	row, err := r.queries.UpdateSource(ctx, dbgen.UpdateSourceParams{
+		ID:          db.PGUUID(s.ID),
+		Title:       s.Title,
+		Subtitle:    db.PGText(s.Subtitle),
+		Type:        string(s.Type),
+		Description: db.PGText(s.Description),
+		Publisher:   db.PGText(s.Publisher),
+		Isbn:        db.PGText(s.ISBN),
+		Doi:         db.PGText(s.DOI),
+		Url:         db.PGText(s.URL),
+		ExternalID:  db.PGText(s.ExternalID),
+		Tags:        tags,
+		PublishedAt: db.PGTimestamptzPtr(s.PublishedAt),
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-
-	return r.mapRow(row), nil
+	return mapSource(row), nil
 }
 
 func (r *postgresRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM sources WHERE id = $1`, id.String())
-	return err
+	return r.queries.DeleteSource(ctx, db.PGUUID(id))
 }
 
 func (r *postgresRepository) Search(ctx context.Context, query string, limit, offset int) ([]*Source, error) {
-	rows, err := r.db.Query(ctx, `
-		SELECT id, title, subtitle, type, description, publisher, isbn, doi, url, external_id, tags, published_at, created_at, updated_at
-		FROM sources WHERE title ILIKE '%' || $1 || '%' ORDER BY created_at DESC LIMIT $2 OFFSET $3
-	`, query, limit, offset)
+	rows, err := r.queries.SearchSources(ctx, dbgen.SearchSourcesParams{Column1: pgtype.Text{String: query, Valid: true}, Limit: int32(limit), Offset: int32(offset)})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	return r.scanRows(rows)
+	return mapSources(rows), nil
 }
 
 func (r *postgresRepository) Count(ctx context.Context) (int64, error) {
-	var count int64
-	err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM sources`).Scan(&count)
-	return count, err
+	return r.queries.CountSources(ctx)
 }
 
 func (r *postgresRepository) listContributors(ctx context.Context, sourceID uuid.UUID) ([]*Contributor, error) {
-	rows, err := r.db.Query(ctx, `
-		SELECT c.id, c.name, sc.role, sc.position, c.created_at, c.updated_at
-		FROM source_contributors sc
-		JOIN contributors c ON c.id = sc.contributor_id
-		WHERE sc.source_id = $1
-		ORDER BY sc.position ASC, c.name ASC
-	`, sourceID.String())
+	rows, err := r.queries.ListContributorsBySource(ctx, db.PGUUID(sourceID))
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	contributors := []*Contributor{}
-	for rows.Next() {
-		row, err := scanContributor(rows)
-		if err != nil {
-			return nil, err
-		}
+	contributors := make([]*Contributor, 0, len(rows))
+	for _, row := range rows {
 		contributors = append(contributors, mapContributor(row))
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
 	}
 	return contributors, nil
 }
 
-func (r *postgresRepository) scanRows(rows pgx.Rows) ([]*Source, error) {
-	var sources []*Source
-	for rows.Next() {
-		row, err := scanSource(rows)
-		if err != nil {
-			return nil, err
-		}
-		sources = append(sources, r.mapRow(row))
+func mapSources(rows []dbgen.Source) []*Source {
+	sources := make([]*Source, 0, len(rows))
+	for _, row := range rows {
+		sources = append(sources, mapSource(row))
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return sources, nil
+	return sources
 }
 
-func scanSource(row pgx.Row) (sourceRow, error) {
-	var s sourceRow
-	err := row.Scan(
-		&s.ID,
-		&s.Title,
-		&s.Subtitle,
-		&s.Type,
-		&s.Description,
-		&s.Publisher,
-		&s.ISBN,
-		&s.DOI,
-		&s.URL,
-		&s.ExternalID,
-		&s.Tags,
-		&s.PublishedAt,
-		&s.CreatedAt,
-		&s.UpdatedAt,
-	)
-	return s, err
-}
-
-func scanBookMetadata(row pgx.Row) (bookMetadataRow, error) {
-	var metadata bookMetadataRow
-	err := row.Scan(
-		&metadata.SourceID,
-		&metadata.ISBN10,
-		&metadata.ISBN13,
-		&metadata.Publisher,
-		&metadata.PageCount,
-		&metadata.Language,
-		&metadata.CoverURL,
-		&metadata.CreatedAt,
-		&metadata.UpdatedAt,
-	)
-	return metadata, err
-}
-
-func scanContributor(row pgx.Row) (contributorRow, error) {
-	var contributor contributorRow
-	err := row.Scan(
-		&contributor.ID,
-		&contributor.Name,
-		&contributor.Role,
-		&contributor.Position,
-		&contributor.CreatedAt,
-		&contributor.UpdatedAt,
-	)
-	return contributor, err
-}
-
-func (r *postgresRepository) mapRow(row sourceRow) *Source {
+func mapSource(row dbgen.Source) *Source {
 	var tags []string
 	if len(row.Tags) > 0 {
 		_ = json.Unmarshal(row.Tags, &tags)
 	}
-
 	return &Source{
-		ID:          uuid.UUID(row.ID.Bytes),
+		ID:          db.UUID(row.ID),
 		Title:       row.Title,
-		Subtitle:    stringPtr(row.Subtitle),
+		Subtitle:    db.StringPtr(row.Subtitle),
 		Type:        SourceType(row.Type),
-		Description: stringPtr(row.Description),
-		Publisher:   stringPtr(row.Publisher),
-		ISBN:        stringPtr(row.ISBN),
-		DOI:         stringPtr(row.DOI),
-		URL:         stringPtr(row.URL),
-		ExternalID:  stringPtr(row.ExternalID),
+		Description: db.StringPtr(row.Description),
+		Publisher:   db.StringPtr(row.Publisher),
+		ISBN:        db.StringPtr(row.Isbn),
+		DOI:         db.StringPtr(row.Doi),
+		URL:         db.StringPtr(row.Url),
+		ExternalID:  db.StringPtr(row.ExternalID),
 		Tags:        tags,
-		PublishedAt: timePtr(row.PublishedAt),
-		CreatedAt:   row.CreatedAt,
-		UpdatedAt:   row.UpdatedAt,
+		PublishedAt: db.TimePtr(row.PublishedAt),
+		CreatedAt:   db.Time(row.CreatedAt),
+		UpdatedAt:   db.Time(row.UpdatedAt),
 	}
 }
 
-func stringPtr(value pgtype.Text) *string {
-	if !value.Valid {
-		return nil
-	}
-	return &value.String
-}
-
-func intPtr(value pgtype.Int4) *int {
-	if !value.Valid {
-		return nil
-	}
-	result := int(value.Int32)
-	return &result
-}
-
-func mapBookMetadata(row bookMetadataRow) *BookMetadata {
+func mapBookMetadata(row dbgen.BookMetadatum) *BookMetadata {
 	return &BookMetadata{
-		SourceID:  uuid.UUID(row.SourceID.Bytes),
-		ISBN10:    stringPtr(row.ISBN10),
-		ISBN13:    stringPtr(row.ISBN13),
-		Publisher: stringPtr(row.Publisher),
-		PageCount: intPtr(row.PageCount),
-		Language:  stringPtr(row.Language),
-		CoverURL:  stringPtr(row.CoverURL),
-		CreatedAt: row.CreatedAt,
-		UpdatedAt: row.UpdatedAt,
+		SourceID:  db.UUID(row.SourceID),
+		ISBN10:    db.StringPtr(row.Isbn10),
+		ISBN13:    db.StringPtr(row.Isbn13),
+		Publisher: db.StringPtr(row.Publisher),
+		PageCount: db.IntPtr(row.PageCount),
+		Language:  db.StringPtr(row.Language),
+		CoverURL:  db.StringPtr(row.CoverUrl),
+		CreatedAt: db.Time(row.CreatedAt),
+		UpdatedAt: db.Time(row.UpdatedAt),
 	}
 }
 
-func mapContributor(row contributorRow) *Contributor {
+func mapContributor(row dbgen.ListContributorsBySourceRow) *Contributor {
 	return &Contributor{
-		ID:        uuid.UUID(row.ID.Bytes),
+		ID:        db.UUID(row.ID),
 		Name:      row.Name,
 		Role:      row.Role,
-		Position:  row.Position,
-		CreatedAt: row.CreatedAt,
-		UpdatedAt: row.UpdatedAt,
+		Position:  int(row.Position),
+		CreatedAt: db.Time(row.CreatedAt),
+		UpdatedAt: db.Time(row.UpdatedAt),
 	}
 }
 
-func uuidPtr(value pgtype.UUID) *uuid.UUID {
-	if !value.Valid {
-		return nil
+func mapInsertedContributor(row dbgen.InsertSourceContributorRow) *Contributor {
+	return &Contributor{
+		ID:        db.UUID(row.ContributorID),
+		Name:      row.Name,
+		Role:      row.Role,
+		Position:  int(row.Position),
+		CreatedAt: db.Time(row.CreatedAt),
+		UpdatedAt: db.Time(row.UpdatedAt),
 	}
-	id := uuid.UUID(value.Bytes)
-	return &id
-}
-
-func nullableUUIDString(value *uuid.UUID) *string {
-	if value == nil {
-		return nil
-	}
-	result := value.String()
-	return &result
-}
-
-func timePtr(value pgtype.Timestamptz) *time.Time {
-	if !value.Valid {
-		return nil
-	}
-	return &value.Time
 }

@@ -3,67 +3,51 @@ package profiles
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/gofrs/uuid/v5"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/zizouhuweidi/maktaba/internal/db"
+	"github.com/zizouhuweidi/maktaba/internal/db/dbgen"
 )
 
 type postgresRepository struct {
-	db *db.DB
-}
-
-type profileRow struct {
-	ID            pgtype.UUID
-	UserID        pgtype.UUID
-	Username      pgtype.Text
-	DisplayName   pgtype.Text
-	Bio           pgtype.Text
-	PublicProfile bool
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	queries *dbgen.Queries
 }
 
 func NewPostgresRepository(d *db.DB) Repository {
-	return &postgresRepository{db: d}
+	return &postgresRepository{queries: dbgen.New(d.Pool)}
 }
 
 func (r *postgresRepository) GetByUserID(ctx context.Context, userID uuid.UUID) (*Profile, error) {
-	row, err := scanProfile(r.db.QueryRow(ctx, `
-		SELECT p.id, p.user_id, u.username::text, p.display_name, p.bio, p.public_profile, p.created_at, p.updated_at
-		FROM profiles p
-		JOIN users u ON u.id = p.user_id
-		WHERE p.user_id = $1
-		LIMIT 1
-	`, userID.String()))
+	row, err := r.queries.GetProfileByUserID(ctx, db.PGUUID(userID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-
-	return mapRow(row), nil
+	profile := mapProfile(row)
+	return profile, nil
 }
 
 func (r *postgresRepository) GetPublicByUsername(ctx context.Context, username string) (*Profile, error) {
-	row, err := scanProfile(r.db.QueryRow(ctx, `
-		SELECT p.id, p.user_id, u.username::text, p.display_name, p.bio, p.public_profile, p.created_at, p.updated_at
-		FROM profiles p
-		JOIN users u ON u.id = p.user_id
-		WHERE u.username = $1 AND p.public_profile = true
-		LIMIT 1
-	`, username))
+	row, err := r.queries.GetPublicProfileByUsername(ctx, username)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-
-	return mapRow(row), nil
+	return &Profile{
+		ID:            db.UUID(row.ID),
+		UserID:        db.UUID(row.UserID),
+		Username:      row.Username,
+		DisplayName:   db.StringPtr(row.DisplayName),
+		Bio:           db.StringPtr(row.Bio),
+		PublicProfile: db.Bool(row.PublicProfile),
+		CreatedAt:     db.Time(row.CreatedAt),
+		UpdatedAt:     db.Time(row.UpdatedAt),
+	}, nil
 }
 
 func (r *postgresRepository) Upsert(ctx context.Context, profile *Profile) (*Profile, error) {
@@ -76,59 +60,36 @@ func (r *postgresRepository) Upsert(ctx context.Context, profile *Profile) (*Pro
 		}
 	}
 
-	row, err := scanProfile(r.db.QueryRow(ctx, `
-		WITH upserted AS (
-			INSERT INTO profiles (id, user_id, display_name, bio, public_profile)
-			VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT (user_id) DO UPDATE SET
-				display_name = EXCLUDED.display_name,
-				bio = EXCLUDED.bio,
-				public_profile = EXCLUDED.public_profile,
-				updated_at = NOW()
-			RETURNING id, user_id, display_name, bio, public_profile, created_at, updated_at
-		)
-		SELECT p.id, p.user_id, u.username::text, p.display_name, p.bio, p.public_profile, p.created_at, p.updated_at
-		FROM upserted p
-		JOIN users u ON u.id = p.user_id
-	`, id.String(), profile.UserID.String(), profile.DisplayName, profile.Bio, profile.PublicProfile))
+	row, err := r.queries.UpsertProfile(ctx, dbgen.UpsertProfileParams{
+		ID:            db.PGUUID(id),
+		UserID:        db.PGUUID(profile.UserID),
+		DisplayName:   db.PGText(profile.DisplayName),
+		Bio:           db.PGText(profile.Bio),
+		PublicProfile: db.PGBool(profile.PublicProfile),
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	return mapRow(row), nil
-}
-
-func scanProfile(row pgx.Row) (profileRow, error) {
-	var profile profileRow
-	err := row.Scan(
-		&profile.ID,
-		&profile.UserID,
-		&profile.Username,
-		&profile.DisplayName,
-		&profile.Bio,
-		&profile.PublicProfile,
-		&profile.CreatedAt,
-		&profile.UpdatedAt,
-	)
-	return profile, err
-}
-
-func mapRow(row profileRow) *Profile {
 	return &Profile{
-		ID:            uuid.UUID(row.ID.Bytes),
-		UserID:        uuid.UUID(row.UserID.Bytes),
-		Username:      row.Username.String,
-		DisplayName:   stringPtr(row.DisplayName),
-		Bio:           stringPtr(row.Bio),
-		PublicProfile: row.PublicProfile,
-		CreatedAt:     row.CreatedAt,
-		UpdatedAt:     row.UpdatedAt,
-	}
+		ID:            db.UUID(row.ID),
+		UserID:        db.UUID(row.UserID),
+		Username:      row.Username,
+		DisplayName:   db.StringPtr(row.DisplayName),
+		Bio:           db.StringPtr(row.Bio),
+		PublicProfile: db.Bool(row.PublicProfile),
+		CreatedAt:     db.Time(row.CreatedAt),
+		UpdatedAt:     db.Time(row.UpdatedAt),
+	}, nil
 }
 
-func stringPtr(value pgtype.Text) *string {
-	if !value.Valid {
-		return nil
+func mapProfile(row dbgen.Profile) *Profile {
+	return &Profile{
+		ID:            db.UUID(row.ID),
+		UserID:        db.UUID(row.UserID),
+		DisplayName:   db.StringPtr(row.DisplayName),
+		Bio:           db.StringPtr(row.Bio),
+		PublicProfile: db.Bool(row.PublicProfile),
+		CreatedAt:     db.Time(row.CreatedAt),
+		UpdatedAt:     db.Time(row.UpdatedAt),
 	}
-	return &value.String
 }

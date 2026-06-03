@@ -7,8 +7,8 @@ import (
 
 	"github.com/gofrs/uuid/v5"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/zizouhuweidi/maktaba/internal/db"
+	"github.com/zizouhuweidi/maktaba/internal/db/dbgen"
 )
 
 type Repository interface {
@@ -22,78 +22,68 @@ type Repository interface {
 }
 
 type postgresRepository struct {
-	db *db.DB
+	db      *db.DB
+	queries *dbgen.Queries
 }
 
 func NewPostgresRepository(d *db.DB) Repository {
-	return &postgresRepository{db: d}
+	return &postgresRepository{db: d, queries: dbgen.New(d.Pool)}
 }
 
 func (r *postgresRepository) CreateUser(ctx context.Context, user User) (*User, error) {
-	row := r.db.QueryRow(ctx, `
-		INSERT INTO users (id, email, username, password_hash)
-		VALUES ($1, LOWER($2), LOWER($3), $4)
-		RETURNING id, email, username, password_hash, created_at, updated_at
-	`, user.ID.String(), user.Email, user.Username, user.PasswordHash)
-	return scanUser(row)
+	row, err := r.queries.CreateUser(ctx, dbgen.CreateUserParams{
+		ID:           db.PGUUID(user.ID),
+		Email:        user.Email,
+		Username:     user.Username,
+		PasswordHash: user.PasswordHash,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return mapCreateUserRow(row), nil
 }
 
 func (r *postgresRepository) GetUserByEmailOrUsername(ctx context.Context, login string) (*User, error) {
-	row := r.db.QueryRow(ctx, `
-		SELECT id, email, username, password_hash, created_at, updated_at
-		FROM users WHERE email = LOWER($1) OR username = LOWER($1) LIMIT 1
-	`, login)
-	user, err := scanUser(row)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
-	}
-	return user, err
-}
-
-func (r *postgresRepository) GetUserByID(ctx context.Context, id uuid.UUID) (*User, error) {
-	row := r.db.QueryRow(ctx, `
-		SELECT id, email, username, password_hash, created_at, updated_at
-		FROM users WHERE id = $1 LIMIT 1
-	`, id.String())
-	user, err := scanUser(row)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
-	}
-	return user, err
-}
-
-func (r *postgresRepository) CreateRefreshToken(ctx context.Context, token RefreshToken) error {
-	_, err := r.db.Exec(ctx, `
-		INSERT INTO refresh_tokens (id, user_id, token_hash, family_id, expires_at)
-		VALUES ($1, $2, $3, $4, $5)
-	`, token.ID.String(), token.UserID.String(), token.TokenHash, token.FamilyID.String(), token.ExpiresAt)
-	return err
-}
-
-func (r *postgresRepository) GetRefreshToken(ctx context.Context, tokenHash []byte) (*RefreshToken, error) {
-	var token RefreshToken
-	var id pgtype.UUID
-	var userID pgtype.UUID
-	var familyID pgtype.UUID
-	var revokedAt pgtype.Timestamptz
-	err := r.db.QueryRow(ctx, `
-		SELECT id, user_id, token_hash, family_id, expires_at, revoked_at, created_at
-		FROM refresh_tokens WHERE token_hash = $1 LIMIT 1
-	`, tokenHash).Scan(&id, &userID, &token.TokenHash, &familyID, &token.ExpiresAt, &revokedAt, &token.CreatedAt)
+	row, err := r.queries.GetUserByEmailOrUsername(ctx, login)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	token.ID = uuid.UUID(id.Bytes)
-	token.UserID = uuid.UUID(userID.Bytes)
-	token.FamilyID = uuid.UUID(familyID.Bytes)
-	if revokedAt.Valid {
-		t := revokedAt.Time
-		token.RevokedAt = &t
+	return mapGetUserByEmailOrUsernameRow(row), nil
+}
+
+func (r *postgresRepository) GetUserByID(ctx context.Context, id uuid.UUID) (*User, error) {
+	row, err := r.queries.GetUserByID(ctx, db.PGUUID(id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
 	}
-	return &token, nil
+	if err != nil {
+		return nil, err
+	}
+	return mapGetUserByIDRow(row), nil
+}
+
+func (r *postgresRepository) CreateRefreshToken(ctx context.Context, token RefreshToken) error {
+	return r.queries.CreateRefreshToken(ctx, dbgen.CreateRefreshTokenParams{
+		ID:        db.PGUUID(token.ID),
+		UserID:    db.PGUUID(token.UserID),
+		TokenHash: token.TokenHash,
+		FamilyID:  db.PGUUID(token.FamilyID),
+		ExpiresAt: db.PGTimestamptz(token.ExpiresAt),
+	})
+}
+
+func (r *postgresRepository) GetRefreshToken(ctx context.Context, tokenHash []byte) (*RefreshToken, error) {
+	row, err := r.queries.GetRefreshToken(ctx, tokenHash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return mapRefreshTokenRow(row), nil
 }
 
 func (r *postgresRepository) RotateRefreshToken(ctx context.Context, rotation RefreshTokenRotation) error {
@@ -103,23 +93,26 @@ func (r *postgresRepository) RotateRefreshToken(ctx context.Context, rotation Re
 	}
 	defer tx.Rollback(ctx)
 
-	_, err = tx.Exec(ctx, `
-		INSERT INTO refresh_tokens (id, user_id, token_hash, family_id, expires_at)
-		VALUES ($1, $2, $3, $4, $5)
-	`, rotation.NewToken.ID.String(), rotation.NewToken.UserID.String(), rotation.NewToken.TokenHash, rotation.NewToken.FamilyID.String(), rotation.NewToken.ExpiresAt)
-	if err != nil {
+	qtx := r.queries.WithTx(tx)
+	if err := qtx.InsertRotatedRefreshToken(ctx, dbgen.InsertRotatedRefreshTokenParams{
+		ID:        db.PGUUID(rotation.NewToken.ID),
+		UserID:    db.PGUUID(rotation.NewToken.UserID),
+		TokenHash: rotation.NewToken.TokenHash,
+		FamilyID:  db.PGUUID(rotation.NewToken.FamilyID),
+		ExpiresAt: db.PGTimestamptz(rotation.NewToken.ExpiresAt),
+	}); err != nil {
 		return err
 	}
 
-	result, err := tx.Exec(ctx, `
-		UPDATE refresh_tokens
-		SET revoked_at = $2, replaced_by_token_id = $3
-		WHERE id = $1 AND revoked_at IS NULL
-	`, rotation.CurrentTokenID.String(), time.Now().UTC(), rotation.ReplacedByID.String())
+	rowsAffected, err := qtx.RevokeRefreshTokenForRotation(ctx, dbgen.RevokeRefreshTokenForRotationParams{
+		ID:                db.PGUUID(rotation.CurrentTokenID),
+		RevokedAt:         db.PGTimestamptz(time.Now().UTC()),
+		ReplacedByTokenID: db.PGUUID(rotation.ReplacedByID),
+	})
 	if err != nil {
 		return err
 	}
-	if result.RowsAffected() != 1 {
+	if rowsAffected != 1 {
 		return ErrInvalidRefresh
 	}
 
@@ -127,18 +120,54 @@ func (r *postgresRepository) RotateRefreshToken(ctx context.Context, rotation Re
 }
 
 func (r *postgresRepository) RevokeRefreshTokenFamily(ctx context.Context, familyID uuid.UUID) error {
-	_, err := r.db.Exec(ctx, `
-		UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, $2) WHERE family_id = $1
-	`, familyID.String(), time.Now().UTC())
-	return err
+	return r.queries.RevokeRefreshTokenFamily(ctx, dbgen.RevokeRefreshTokenFamilyParams{
+		FamilyID:  db.PGUUID(familyID),
+		RevokedAt: db.PGTimestamptz(time.Now().UTC()),
+	})
 }
 
-func scanUser(row pgx.Row) (*User, error) {
-	var user User
-	var id pgtype.UUID
-	if err := row.Scan(&id, &user.Email, &user.Username, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt); err != nil {
-		return nil, err
+func mapCreateUserRow(row dbgen.CreateUserRow) *User {
+	return &User{
+		ID:           db.UUID(row.ID),
+		Email:        row.Email,
+		Username:     row.Username,
+		PasswordHash: row.PasswordHash,
+		CreatedAt:    db.Time(row.CreatedAt),
+		UpdatedAt:    db.Time(row.UpdatedAt),
 	}
-	user.ID = uuid.UUID(id.Bytes)
-	return &user, nil
+}
+
+func mapGetUserByEmailOrUsernameRow(row dbgen.GetUserByEmailOrUsernameRow) *User {
+	return &User{
+		ID:           db.UUID(row.ID),
+		Email:        row.Email,
+		Username:     row.Username,
+		PasswordHash: row.PasswordHash,
+		CreatedAt:    db.Time(row.CreatedAt),
+		UpdatedAt:    db.Time(row.UpdatedAt),
+	}
+}
+
+func mapGetUserByIDRow(row dbgen.GetUserByIDRow) *User {
+	return &User{
+		ID:           db.UUID(row.ID),
+		Email:        row.Email,
+		Username:     row.Username,
+		PasswordHash: row.PasswordHash,
+		CreatedAt:    db.Time(row.CreatedAt),
+		UpdatedAt:    db.Time(row.UpdatedAt),
+	}
+}
+
+func mapRefreshTokenRow(row dbgen.GetRefreshTokenRow) *RefreshToken {
+	token := &RefreshToken{
+		ID:        db.UUID(row.ID),
+		UserID:    db.UUID(row.UserID),
+		TokenHash: row.TokenHash,
+		FamilyID:  db.UUID(row.FamilyID),
+		ExpiresAt: db.Time(row.ExpiresAt),
+		CreatedAt: db.Time(row.CreatedAt),
+	}
+	token.RevokedAt = db.TimePtr(row.RevokedAt)
+	return token
 }

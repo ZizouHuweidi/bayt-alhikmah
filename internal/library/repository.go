@@ -3,44 +3,21 @@ package library
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/gofrs/uuid/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/zizouhuweidi/maktaba/internal/db"
+	"github.com/zizouhuweidi/maktaba/internal/db/dbgen"
 )
 
 type postgresRepository struct {
-	db *db.DB
-}
-
-type itemRow struct {
-	ID            pgtype.UUID
-	UserID        pgtype.UUID
-	SourceID      pgtype.UUID
-	Status        string
-	ProgressValue pgtype.Int4
-	ProgressUnit  pgtype.Text
-	Visibility    string
-	StartedAt     pgtype.Timestamptz
-	CompletedAt   pgtype.Timestamptz
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-}
-
-type itemWithSourceRow struct {
-	Item            itemRow
-	SourceTitle     string
-	SourceSubtitle  pgtype.Text
-	SourceType      string
-	SourcePublisher pgtype.Text
-	SourceISBN      pgtype.Text
+	queries *dbgen.Queries
 }
 
 func NewPostgresRepository(d *db.DB) Repository {
-	return &postgresRepository{db: d}
+	return &postgresRepository{queries: dbgen.New(d.Pool)}
 }
 
 func (r *postgresRepository) Create(ctx context.Context, item *Item) (*Item, error) {
@@ -49,15 +26,21 @@ func (r *postgresRepository) Create(ctx context.Context, item *Item) (*Item, err
 		return nil, err
 	}
 
-	row, err := scanItem(r.db.QueryRow(ctx, `
-		INSERT INTO user_library_items (id, user_id, source_id, status, progress_value, progress_unit, visibility, started_at, completed_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING id, user_id, source_id, status, progress_value, progress_unit, visibility, started_at, completed_at, created_at, updated_at
-	`, id.String(), item.UserID.String(), item.SourceID.String(), string(item.Status), item.ProgressValue, progressUnitString(item.ProgressUnit), string(item.Visibility), item.StartedAt, item.CompletedAt))
+	row, err := r.queries.CreateLibraryItem(ctx, dbgen.CreateLibraryItemParams{
+		ID:            db.PGUUID(id),
+		UserID:        db.PGUUID(item.UserID),
+		SourceID:      db.PGUUID(item.SourceID),
+		Status:        string(item.Status),
+		ProgressValue: db.PGInt4Ptr(item.ProgressValue),
+		ProgressUnit:  pgProgressUnit(item.ProgressUnit),
+		Visibility:    string(item.Visibility),
+		StartedAt:     db.PGTimestamptzPtr(item.StartedAt),
+		CompletedAt:   db.PGTimestamptzPtr(item.CompletedAt),
+	})
 	if err != nil {
 		return nil, mapCreateError(err)
 	}
-	return mapRow(row), nil
+	return mapItem(row), nil
 }
 
 func mapCreateError(err error) error {
@@ -79,216 +62,153 @@ func mapCreateError(err error) error {
 }
 
 func (r *postgresRepository) GetByID(ctx context.Context, id uuid.UUID) (*Item, error) {
-	row, err := scanItem(r.db.QueryRow(ctx, `
-		SELECT id, user_id, source_id, status, progress_value, progress_unit, visibility, started_at, completed_at, created_at, updated_at
-		FROM user_library_items WHERE id = $1 LIMIT 1
-	`, id.String()))
+	row, err := r.queries.GetLibraryItemByID(ctx, db.PGUUID(id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	return mapRow(row), nil
+	return mapItem(row), nil
 }
 
 func (r *postgresRepository) ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]*Item, error) {
-	rows, err := r.db.Query(ctx, `
-		SELECT id, user_id, source_id, status, progress_value, progress_unit, visibility, started_at, completed_at, created_at, updated_at
-		FROM user_library_items WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3
-	`, userID.String(), limit, offset)
+	rows, err := r.queries.ListLibraryItemsByUser(ctx, dbgen.ListLibraryItemsByUserParams{UserID: db.PGUUID(userID), Limit: int32(limit), Offset: int32(offset)})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	return scanItems(rows)
+	return mapItems(rows), nil
 }
 
 func (r *postgresRepository) ListPublicByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]*Item, error) {
-	rows, err := r.db.Query(ctx, `
-		SELECT id, user_id, source_id, status, progress_value, progress_unit, visibility, started_at, completed_at, created_at, updated_at
-		FROM user_library_items WHERE user_id = $1 AND visibility = 'public' ORDER BY created_at DESC LIMIT $2 OFFSET $3
-	`, userID.String(), limit, offset)
+	rows, err := r.queries.ListPublicLibraryItemsByUser(ctx, dbgen.ListPublicLibraryItemsByUserParams{UserID: db.PGUUID(userID), Limit: int32(limit), Offset: int32(offset)})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	return scanItems(rows)
+	return mapItems(rows), nil
 }
 
 func (r *postgresRepository) ListPublicByUsername(ctx context.Context, username string, limit, offset int) ([]*Item, error) {
-	rows, err := r.db.Query(ctx, `
-		SELECT uli.id, uli.user_id, uli.source_id, uli.status, uli.progress_value, uli.progress_unit, uli.visibility, uli.started_at, uli.completed_at, uli.created_at, uli.updated_at
-		FROM user_library_items uli
-		JOIN users u ON u.id = uli.user_id
-		WHERE u.username = $1 AND uli.visibility = 'public'
-		ORDER BY uli.created_at DESC LIMIT $2 OFFSET $3
-	`, username, limit, offset)
+	rows, err := r.queries.ListPublicLibraryItemsByUsername(ctx, dbgen.ListPublicLibraryItemsByUsernameParams{Username: username, Limit: int32(limit), Offset: int32(offset)})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	return scanItems(rows)
+	return mapItems(rows), nil
 }
 
 func (r *postgresRepository) ListByUserWithSources(ctx context.Context, userID uuid.UUID, limit, offset int) ([]*ItemWithSource, error) {
-	rows, err := r.db.Query(ctx, `
-		SELECT uli.id, uli.user_id, uli.source_id, uli.status, uli.progress_value, uli.progress_unit, uli.visibility, uli.started_at, uli.completed_at, uli.created_at, uli.updated_at,
-		       s.title, s.subtitle, s.type, s.publisher, s.isbn
-		FROM user_library_items uli
-		JOIN sources s ON s.id = uli.source_id
-		WHERE uli.user_id = $1
-		ORDER BY uli.created_at DESC LIMIT $2 OFFSET $3
-	`, userID.String(), limit, offset)
+	rows, err := r.queries.ListLibraryItemsByUserWithSources(ctx, dbgen.ListLibraryItemsByUserWithSourcesParams{UserID: db.PGUUID(userID), Limit: int32(limit), Offset: int32(offset)})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	return scanItemsWithSources(rows)
+	items := make([]*ItemWithSource, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, mapItemWithSource(row))
+	}
+	return items, nil
 }
 
 func (r *postgresRepository) ListPublicByUsernameWithSources(ctx context.Context, username string, limit, offset int) ([]*ItemWithSource, error) {
-	rows, err := r.db.Query(ctx, `
-		SELECT uli.id, uli.user_id, uli.source_id, uli.status, uli.progress_value, uli.progress_unit, uli.visibility, uli.started_at, uli.completed_at, uli.created_at, uli.updated_at,
-		       s.title, s.subtitle, s.type, s.publisher, s.isbn
-		FROM user_library_items uli
-		JOIN users u ON u.id = uli.user_id
-		JOIN sources s ON s.id = uli.source_id
-		WHERE u.username = $1 AND uli.visibility = 'public'
-		ORDER BY uli.created_at DESC LIMIT $2 OFFSET $3
-	`, username, limit, offset)
+	rows, err := r.queries.ListPublicLibraryItemsByUsernameWithSources(ctx, dbgen.ListPublicLibraryItemsByUsernameWithSourcesParams{Username: username, Limit: int32(limit), Offset: int32(offset)})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	return scanItemsWithSources(rows)
+	items := make([]*ItemWithSource, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, mapPublicItemWithSource(row))
+	}
+	return items, nil
 }
 
 func (r *postgresRepository) Update(ctx context.Context, item *Item) (*Item, error) {
-	row, err := scanItem(r.db.QueryRow(ctx, `
-		UPDATE user_library_items
-		SET status = $2, progress_value = $3, progress_unit = $4, visibility = $5, started_at = $6, completed_at = $7, updated_at = NOW()
-		WHERE id = $1
-		RETURNING id, user_id, source_id, status, progress_value, progress_unit, visibility, started_at, completed_at, created_at, updated_at
-	`, item.ID.String(), string(item.Status), item.ProgressValue, progressUnitString(item.ProgressUnit), string(item.Visibility), item.StartedAt, item.CompletedAt))
+	row, err := r.queries.UpdateLibraryItem(ctx, dbgen.UpdateLibraryItemParams{
+		ID:            db.PGUUID(item.ID),
+		Status:        string(item.Status),
+		ProgressValue: db.PGInt4Ptr(item.ProgressValue),
+		ProgressUnit:  pgProgressUnit(item.ProgressUnit),
+		Visibility:    string(item.Visibility),
+		StartedAt:     db.PGTimestamptzPtr(item.StartedAt),
+		CompletedAt:   db.PGTimestamptzPtr(item.CompletedAt),
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	return mapRow(row), nil
+	return mapItem(row), nil
 }
 
 func (r *postgresRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM user_library_items WHERE id = $1`, id.String())
-	return err
+	return r.queries.DeleteLibraryItem(ctx, db.PGUUID(id))
 }
 
-func scanItems(rows pgx.Rows) ([]*Item, error) {
-	var items []*Item
-	for rows.Next() {
-		row, err := scanItem(rows)
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, mapRow(row))
+func mapItems(rows []dbgen.UserLibraryItem) []*Item {
+	items := make([]*Item, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, mapItem(row))
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+	return items
 }
 
-func scanItemsWithSources(rows pgx.Rows) ([]*ItemWithSource, error) {
-	var items []*ItemWithSource
-	for rows.Next() {
-		row, err := scanItemWithSource(rows)
-		if err != nil {
-			return nil, err
-		}
-		item := mapRow(row.Item)
-		items = append(items, &ItemWithSource{
-			Item: item,
-			Source: &SourceSummary{
-				ID:        item.SourceID,
-				Title:     row.SourceTitle,
-				Subtitle:  stringPtr(row.SourceSubtitle),
-				Type:      row.SourceType,
-				Publisher: stringPtr(row.SourcePublisher),
-				ISBN:      stringPtr(row.SourceISBN),
-			},
-		})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-func scanItem(row pgx.Row) (itemRow, error) {
-	var item itemRow
-	err := row.Scan(
-		&item.ID,
-		&item.UserID,
-		&item.SourceID,
-		&item.Status,
-		&item.ProgressValue,
-		&item.ProgressUnit,
-		&item.Visibility,
-		&item.StartedAt,
-		&item.CompletedAt,
-		&item.CreatedAt,
-		&item.UpdatedAt,
-	)
-	return item, err
-}
-
-func scanItemWithSource(row pgx.Row) (itemWithSourceRow, error) {
-	var item itemWithSourceRow
-	err := row.Scan(
-		&item.Item.ID,
-		&item.Item.UserID,
-		&item.Item.SourceID,
-		&item.Item.Status,
-		&item.Item.ProgressValue,
-		&item.Item.ProgressUnit,
-		&item.Item.Visibility,
-		&item.Item.StartedAt,
-		&item.Item.CompletedAt,
-		&item.Item.CreatedAt,
-		&item.Item.UpdatedAt,
-		&item.SourceTitle,
-		&item.SourceSubtitle,
-		&item.SourceType,
-		&item.SourcePublisher,
-		&item.SourceISBN,
-	)
-	return item, err
-}
-
-func mapRow(row itemRow) *Item {
+func mapItem(row dbgen.UserLibraryItem) *Item {
 	return &Item{
-		ID:            uuid.UUID(row.ID.Bytes),
-		UserID:        uuid.UUID(row.UserID.Bytes),
-		SourceID:      uuid.UUID(row.SourceID.Bytes),
+		ID:            db.UUID(row.ID),
+		UserID:        db.UUID(row.UserID),
+		SourceID:      db.UUID(row.SourceID),
 		Status:        Status(row.Status),
-		ProgressValue: intPtr(row.ProgressValue),
+		ProgressValue: db.IntPtr(row.ProgressValue),
 		ProgressUnit:  progressUnitPtr(row.ProgressUnit),
 		Visibility:    Visibility(row.Visibility),
-		StartedAt:     timePtr(row.StartedAt),
-		CompletedAt:   timePtr(row.CompletedAt),
-		CreatedAt:     row.CreatedAt,
-		UpdatedAt:     row.UpdatedAt,
+		StartedAt:     db.TimePtr(row.StartedAt),
+		CompletedAt:   db.TimePtr(row.CompletedAt),
+		CreatedAt:     db.Time(row.CreatedAt),
+		UpdatedAt:     db.Time(row.UpdatedAt),
 	}
 }
 
-func intPtr(value pgtype.Int4) *int {
-	if !value.Valid {
-		return nil
+func mapItemWithSource(row dbgen.ListLibraryItemsByUserWithSourcesRow) *ItemWithSource {
+	item := mapJoinedItem(row.ID, row.UserID, row.SourceID, row.Status, row.ProgressValue, row.ProgressUnit, row.Visibility, row.StartedAt, row.CompletedAt, row.CreatedAt, row.UpdatedAt)
+	return &ItemWithSource{Item: item, Source: mapSourceSummary(item.SourceID, row.Title, row.Subtitle, row.Type, row.Publisher, row.Isbn)}
+}
+
+func mapPublicItemWithSource(row dbgen.ListPublicLibraryItemsByUsernameWithSourcesRow) *ItemWithSource {
+	item := mapJoinedItem(row.ID, row.UserID, row.SourceID, row.Status, row.ProgressValue, row.ProgressUnit, row.Visibility, row.StartedAt, row.CompletedAt, row.CreatedAt, row.UpdatedAt)
+	return &ItemWithSource{Item: item, Source: mapSourceSummary(item.SourceID, row.Title, row.Subtitle, row.Type, row.Publisher, row.Isbn)}
+}
+
+func mapJoinedItem(id, userID, sourceID pgtype.UUID, status string, progressValue pgtype.Int4, progressUnit pgtype.Text, visibility string, startedAt, completedAt, createdAt, updatedAt pgtype.Timestamptz) *Item {
+	return &Item{
+		ID:            db.UUID(id),
+		UserID:        db.UUID(userID),
+		SourceID:      db.UUID(sourceID),
+		Status:        Status(status),
+		ProgressValue: db.IntPtr(progressValue),
+		ProgressUnit:  progressUnitPtr(progressUnit),
+		Visibility:    Visibility(visibility),
+		StartedAt:     db.TimePtr(startedAt),
+		CompletedAt:   db.TimePtr(completedAt),
+		CreatedAt:     db.Time(createdAt),
+		UpdatedAt:     db.Time(updatedAt),
 	}
-	result := int(value.Int32)
-	return &result
+}
+
+func mapSourceSummary(id uuid.UUID, title string, subtitle pgtype.Text, sourceType string, publisher pgtype.Text, isbn pgtype.Text) *SourceSummary {
+	return &SourceSummary{
+		ID:        id,
+		Title:     title,
+		Subtitle:  db.StringPtr(subtitle),
+		Type:      sourceType,
+		Publisher: db.StringPtr(publisher),
+		ISBN:      db.StringPtr(isbn),
+	}
+}
+
+func pgProgressUnit(value *ProgressUnit) pgtype.Text {
+	if value == nil {
+		return pgtype.Text{}
+	}
+	return pgtype.Text{String: string(*value), Valid: true}
 }
 
 func progressUnitPtr(value pgtype.Text) *ProgressUnit {
@@ -297,26 +217,4 @@ func progressUnitPtr(value pgtype.Text) *ProgressUnit {
 	}
 	unit := ProgressUnit(value.String)
 	return &unit
-}
-
-func progressUnitString(value *ProgressUnit) *string {
-	if value == nil {
-		return nil
-	}
-	result := string(*value)
-	return &result
-}
-
-func timePtr(value pgtype.Timestamptz) *time.Time {
-	if !value.Valid {
-		return nil
-	}
-	return &value.Time
-}
-
-func stringPtr(value pgtype.Text) *string {
-	if !value.Valid {
-		return nil
-	}
-	return &value.String
 }

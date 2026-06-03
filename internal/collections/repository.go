@@ -4,31 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"time"
 
 	"github.com/gofrs/uuid/v5"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/zizouhuweidi/maktaba/internal/db"
+	"github.com/zizouhuweidi/maktaba/internal/db/dbgen"
 )
 
 type postgresRepository struct {
-	db *db.DB
-}
-
-type collectionRow struct {
-	ID          pgtype.UUID
-	UserID      pgtype.UUID
-	Name        string
-	Description pgtype.Text
-	IsPublic    bool
-	SourceIDs   []byte
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	queries *dbgen.Queries
 }
 
 func NewPostgresRepository(d *db.DB) Repository {
-	return &postgresRepository{db: d}
+	return &postgresRepository{queries: dbgen.New(d.Pool)}
 }
 
 func (r *postgresRepository) Create(ctx context.Context, collection *Collection) (*Collection, error) {
@@ -45,57 +33,45 @@ func (r *postgresRepository) Create(ctx context.Context, collection *Collection)
 		return nil, err
 	}
 
-	row, err := scanCollection(r.db.QueryRow(ctx, `
-		INSERT INTO collections (id, user_id, name, description, is_public, source_ids)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING id, user_id, name, description, is_public, source_ids, created_at, updated_at
-	`, id.String(), collection.UserID.String(), collection.Name, collection.Description, collection.IsPublic, sourceIDs))
+	row, err := r.queries.CreateCollection(ctx, dbgen.CreateCollectionParams{
+		ID:          db.PGUUID(id),
+		UserID:      db.PGUUID(collection.UserID),
+		Name:        collection.Name,
+		Description: db.PGText(collection.Description),
+		IsPublic:    db.PGBool(collection.IsPublic),
+		SourceIds:   sourceIDs,
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	return mapRow(row), nil
+	return mapCollection(row), nil
 }
 
 func (r *postgresRepository) GetByID(ctx context.Context, id uuid.UUID) (*Collection, error) {
-	row, err := scanCollection(r.db.QueryRow(ctx, `
-		SELECT id, user_id, name, description, is_public, source_ids, created_at, updated_at
-		FROM collections WHERE id = $1 LIMIT 1
-	`, id.String()))
+	row, err := r.queries.GetCollectionByID(ctx, db.PGUUID(id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-
-	return mapRow(row), nil
+	return mapCollection(row), nil
 }
 
 func (r *postgresRepository) ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]*Collection, error) {
-	rows, err := r.db.Query(ctx, `
-		SELECT id, user_id, name, description, is_public, source_ids, created_at, updated_at
-		FROM collections WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3
-	`, userID.String(), limit, offset)
+	rows, err := r.queries.ListCollectionsByUser(ctx, dbgen.ListCollectionsByUserParams{UserID: db.PGUUID(userID), Limit: int32(limit), Offset: int32(offset)})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	return scanRows(rows)
+	return mapCollections(rows), nil
 }
 
 func (r *postgresRepository) ListPublicByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]*Collection, error) {
-	rows, err := r.db.Query(ctx, `
-		SELECT id, user_id, name, description, is_public, source_ids, created_at, updated_at
-		FROM collections WHERE user_id = $1 AND is_public = true ORDER BY created_at DESC LIMIT $2 OFFSET $3
-	`, userID.String(), limit, offset)
+	rows, err := r.queries.ListPublicCollectionsByUser(ctx, dbgen.ListPublicCollectionsByUserParams{UserID: db.PGUUID(userID), Limit: int32(limit), Offset: int32(offset)})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	return scanRows(rows)
+	return mapCollections(rows), nil
 }
 
 func (r *postgresRepository) Update(ctx context.Context, collection *Collection) (*Collection, error) {
@@ -108,31 +84,29 @@ func (r *postgresRepository) Update(ctx context.Context, collection *Collection)
 		return nil, err
 	}
 
-	row, err := scanCollection(r.db.QueryRow(ctx, `
-		UPDATE collections
-		SET name = $2, description = $3, is_public = $4, source_ids = $5, updated_at = NOW()
-		WHERE id = $1
-		RETURNING id, user_id, name, description, is_public, source_ids, created_at, updated_at
-	`, collection.ID.String(), collection.Name, collection.Description, collection.IsPublic, sourceIDs))
+	row, err := r.queries.UpdateCollection(ctx, dbgen.UpdateCollectionParams{
+		ID:          db.PGUUID(collection.ID),
+		Name:        collection.Name,
+		Description: db.PGText(collection.Description),
+		IsPublic:    db.PGBool(collection.IsPublic),
+		SourceIds:   sourceIDs,
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-
-	return mapRow(row), nil
+	return mapCollection(row), nil
 }
 
 func (r *postgresRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM collections WHERE id = $1`, id.String())
-	return err
+	return r.queries.DeleteCollection(ctx, db.PGUUID(id))
 }
 
 func (r *postgresRepository) validateSourceIDs(ctx context.Context, sourceIDs []uuid.UUID) error {
 	for _, sourceID := range sourceIDs {
-		var exists bool
-		err := r.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM sources WHERE id = $1)`, sourceID.String()).Scan(&exists)
+		exists, err := r.queries.SourceExists(ctx, db.PGUUID(sourceID))
 		if err != nil {
 			return err
 		}
@@ -143,57 +117,28 @@ func (r *postgresRepository) validateSourceIDs(ctx context.Context, sourceIDs []
 	return nil
 }
 
-func scanRows(rows pgx.Rows) ([]*Collection, error) {
-	var collections []*Collection
-	for rows.Next() {
-		row, err := scanCollection(rows)
-		if err != nil {
-			return nil, err
-		}
-		collections = append(collections, mapRow(row))
+func mapCollections(rows []dbgen.Collection) []*Collection {
+	collections := make([]*Collection, 0, len(rows))
+	for _, row := range rows {
+		collections = append(collections, mapCollection(row))
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return collections, nil
+	return collections
 }
 
-func scanCollection(row pgx.Row) (collectionRow, error) {
-	var collection collectionRow
-	err := row.Scan(
-		&collection.ID,
-		&collection.UserID,
-		&collection.Name,
-		&collection.Description,
-		&collection.IsPublic,
-		&collection.SourceIDs,
-		&collection.CreatedAt,
-		&collection.UpdatedAt,
-	)
-	return collection, err
-}
-
-func mapRow(row collectionRow) *Collection {
+func mapCollection(row dbgen.Collection) *Collection {
 	var sourceIDs []uuid.UUID
-	if len(row.SourceIDs) > 0 {
-		_ = json.Unmarshal(row.SourceIDs, &sourceIDs)
+	if len(row.SourceIds) > 0 {
+		_ = json.Unmarshal(row.SourceIds, &sourceIDs)
 	}
 
 	return &Collection{
-		ID:          uuid.UUID(row.ID.Bytes),
-		UserID:      uuid.UUID(row.UserID.Bytes),
+		ID:          db.UUID(row.ID),
+		UserID:      db.UUID(row.UserID),
 		Name:        row.Name,
-		Description: stringPtr(row.Description),
-		IsPublic:    row.IsPublic,
+		Description: db.StringPtr(row.Description),
+		IsPublic:    db.Bool(row.IsPublic),
 		SourceIDs:   sourceIDs,
-		CreatedAt:   row.CreatedAt,
-		UpdatedAt:   row.UpdatedAt,
+		CreatedAt:   db.Time(row.CreatedAt),
+		UpdatedAt:   db.Time(row.UpdatedAt),
 	}
-}
-
-func stringPtr(value pgtype.Text) *string {
-	if !value.Valid {
-		return nil
-	}
-	return &value.String
 }
