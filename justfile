@@ -19,13 +19,33 @@ ps:
     {{ compose }} ps
 
 build:
+    just backend-image
+
+images:
+    just backend-image
+    just frontend-image
+
+backend-image:
     podman build -f Containerfile -t bayt-alhikmah:latest .
+
+frontend-image:
+    podman build -f frontend/Containerfile -t bayt-alhikmah-frontend:latest frontend
+
+compose-build:
+    {{ compose }} build
 
 run:
     go run ./cmd/server
 
 test:
     go test ./...
+
+check:
+    just test
+    just frontend-check
+
+backend-check:
+    just test
 
 fmt:
     gofmt -w cmd internal pkg
@@ -54,22 +74,39 @@ db-shell:
 health:
     curl -fsS http://localhost:8080/health
 
+ready:
+    curl -fsS http://localhost:8080/ready
+
+frontend-health:
+    curl -fsS http://localhost:3000/
+
+frontend-install:
+    npm --prefix frontend install
+
 frontend-dev:
-    cd frontend && deno task dev
+    npm --prefix frontend run dev
+
+frontend-start:
+    npm --prefix frontend run start
 
 frontend-build:
-    cd frontend && deno task build
+    npm --prefix frontend run build
 
 frontend-check:
-    cd frontend && deno task check
+    npm --prefix frontend run check
+
+frontend-typecheck:
+    npm --prefix frontend run typecheck
 
 frontend-lint:
-    cd frontend && deno task lint
+    npm --prefix frontend run lint
 
 frontend-format:
-    cd frontend && deno task format
+    npm --prefix frontend run format
 
-frontend-preview:
-    cd frontend && deno task preview
+frontend-ci:
+    just frontend-check
+    just frontend-typecheck
+    just frontend-build
 
 dev: up migrate
